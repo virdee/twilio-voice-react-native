@@ -144,9 +144,9 @@ public class StatsListenerProxy implements StatsListener {
     params.putString(CommonConstants.RemoteCandidateId, iceCandidatePairStats.remoteCandidateId);
     params.putString(CommonConstants.RemoteCandidateIp, iceCandidatePairStats.remoteCandidateIp);
     params.putDouble(CommonConstants.RequestsReceived, iceCandidatePairStats.requestsReceived);
-    // params.putDouble(CommonConstants.RequestsSent, iceCandidatePairStats.requestsSent);
+    params.putDouble(CommonConstants.RequestsSent, iceCandidatePairStats.requestsSent);
     params.putDouble(CommonConstants.ResponsesReceived, iceCandidatePairStats.responsesReceived);
-    params.putDouble(CommonConstants.ResponsesSent, iceCandidatePairStats.responsesSent);
+    // params.putDouble(CommonConstants.ResponsesSent, iceCandidatePairStats.responsesSent);
     params.putDouble(CommonConstants.RetransmissionsReceived, iceCandidatePairStats.retransmissionsReceived);
     params.putDouble(CommonConstants.RetransmissionsSent, iceCandidatePairStats.retransmissionsSent);
     params.putString(CommonConstants.State, stringWithIceCandidatePairState(iceCandidatePairStats.state));
