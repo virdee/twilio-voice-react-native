@@ -29,7 +29,7 @@ def safeExtGet(prop, fallback) {
 }
 
 android {
-    compileSdkVersion safeExtGet('TwilioVoiceReactNative_compileSdkVersion', 32)
+    compileSdkVersion safeExtGet('TwilioVoiceReactNative_compileSdkVersion', 31)
     buildToolsVersion safeExtGet('TwilioVoiceReactNative_buildToolsVersion', '30.0.2')
     defaultConfig {
         minSdkVersion safeExtGet('TwilioVoiceReactNative_minSdkVersion', 16)
