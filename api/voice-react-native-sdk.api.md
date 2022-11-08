@@ -272,7 +272,7 @@ export namespace RTCStats {
         // (undocumented)
         requestsReceieved: number;
         // (undocumented)
-        requestsSent: number;
+        // requestsSent: number;
         // (undocumented)
         responsesRecieved: number;
         // (undocumented)

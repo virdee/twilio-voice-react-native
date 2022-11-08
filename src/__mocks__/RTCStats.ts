@@ -21,7 +21,7 @@ export function createIceCandidatePairStats(): RTCStats.IceCandidatePairStats {
     remoteCandidateId: 'mock-statsreport-remotecandidateid',
     remoteCandidateIp: 'mock-statsreport-remotecandidateip',
     requestsReceieved: 0,
-    requestsSent: 0,
+    // requestsSent: 0,
     responsesRecieved: 0,
     responsesSent: 0,
     retransmissionsReceived: 0,

@@ -32,7 +32,7 @@ export namespace RTCStats {
     remoteCandidateId: string;
     remoteCandidateIp: string;
     requestsReceieved: number;
-    requestsSent: number;
+    // requestsSent: number;
     responsesRecieved: number;
     responsesSent: number;
     retransmissionsReceived: number;

@@ -138,7 +138,7 @@
             kTwilioVoiceReactNativeRemoteCandidateId: iceCandidatePairStats.remoteCandidateId,
             kTwilioVoiceReactNativeRemoteCandidateIp: iceCandidatePairStats.remoteCandidateIp,
             kTwilioVoiceReactNativeRequestsReceived: @(iceCandidatePairStats.requestsReceived),
-            kTwilioVoiceReactNativeRequestsSent: @(iceCandidatePairStats.requestsSent),
+            // kTwilioVoiceReactNativeRequestsSent: @(iceCandidatePairStats.requestsSent),
             kTwilioVoiceReactNativeResponsesReceived: @(iceCandidatePairStats.responsesReceived),
             kTwilioVoiceReactNativeResponsesSent: @(iceCandidatePairStats.responsesSent),
             kTwilioVoiceReactNativeRetransmissionsReceived: @(iceCandidatePairStats.retransmissionsReceived),
