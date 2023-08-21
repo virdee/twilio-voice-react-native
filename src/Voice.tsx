@@ -94,9 +94,9 @@ export declare interface Voice {
    * is raised.
    * @returns - The call object.
    */
-  addListener(voiceEvent: Voice.Event, listener: Voice.Listener.Generic): this;
+  addListener(voiceEvent: Voice.Event, listener: Listener.Generic): this;
   /** {@inheritDoc (Voice:interface).(addListener:1)} */
-  on(voiceEvent: Voice.Event, listener: Voice.Listener.Generic): this;
+  on(voiceEvent: Voice.Event, listener: Listener.Generic): this;
 
   /**
    * Audio devices updated event. Raised when the list of audio devices changes.
@@ -116,12 +116,12 @@ export declare interface Voice {
    */
   addListener(
     audioDevicesUpdatedEvent: Voice.Event.AudioDevicesUpdated,
-    listener: Voice.Listener.AudioDevicesUpdated
+    listener: Listener.AudioDevicesUpdated
   ): this;
   /** {@inheritDoc (Voice:interface).(addListener:2)} */
   on(
     audioDevicesUpdatedEvent: Voice.Event.AudioDevicesUpdated,
-    listener: Voice.Listener.AudioDevicesUpdated
+    listener: Listener.AudioDevicesUpdated
   ): this;
 
   /**
@@ -141,12 +141,12 @@ export declare interface Voice {
    */
   addListener(
     callInviteEvent: Voice.Event.CallInvite,
-    listener: Voice.Listener.CallInvite
+    listener: Listener.CallInvite
   ): this;
   /** {@inheritDoc (Voice:interface).(addListener:3)} */
   on(
     callInviteEvent: Voice.Event.CallInvite,
-    listener: Voice.Listener.CallInvite
+    listener: Listener.CallInvite
   ): this;
 
   /**
@@ -171,12 +171,12 @@ export declare interface Voice {
    */
   addListener(
     callInviteAcceptedEvent: Voice.Event.CallInviteAccepted,
-    listener: Voice.Listener.CallInviteAccepted
+    listener: Listener.CallInviteAccepted
   ): this;
   /** {@inheritDoc (Voice:interface).(addListener:4)} */
   on(
     callInviteAcceptedEvent: Voice.Event.CallInviteAccepted,
-    listener: Voice.Listener.CallInviteAccepted
+    listener: Listener.CallInviteAccepted
   ): this;
 
   /**
@@ -201,12 +201,12 @@ export declare interface Voice {
    */
   addListener(
     callInviteRejectedEvent: Voice.Event.CallInviteRejected,
-    listener: Voice.Listener.CallInviteRejected
+    listener: Listener.CallInviteRejected
   ): this;
   /** {@inheritDoc (Voice:interface).(addListener:5)} */
   on(
     callInviteRejectedEvent: Voice.Event.CallInviteRejected,
-    listener: Voice.Listener.CallInviteRejected
+    listener: Listener.CallInviteRejected
   ): this;
 
   /**
@@ -227,12 +227,12 @@ export declare interface Voice {
    */
   addListener(
     cancelledCallInviteEvent: Voice.Event.CancelledCallInvite,
-    listener: Voice.Listener.CancelledCallInvite
+    listener: Listener.CancelledCallInvite
   ): this;
   /** {@inheritDoc (Voice:interface).(addListener:6)} */
   on(
     cancelledCallInviteEvent: Voice.Event.CancelledCallInvite,
-    listener: Voice.Listener.CancelledCallInvite
+    listener: Listener.CancelledCallInvite
   ): this;
 
   /**
@@ -250,12 +250,9 @@ export declare interface Voice {
    * is raised.
    * @returns - The call object.
    */
-  addListener(
-    errorEvent: Voice.Event.Error,
-    listener: Voice.Listener.Error
-  ): this;
+  addListener(errorEvent: Voice.Event.Error, listener: Listener.Error): this;
   /** {@inheritDoc (Voice:interface).(addListener:7)} */
-  on(errorEvent: Voice.Event.Error, listener: Voice.Listener.Error): this;
+  on(errorEvent: Voice.Event.Error, listener: Listener.Error): this;
 
   /**
    * Registered event. Raised when the SDK is registered for incoming calls.
@@ -274,12 +271,12 @@ export declare interface Voice {
    */
   addListener(
     registeredEvent: Voice.Event.Registered,
-    listener: Voice.Listener.Registered
+    listener: Listener.Registered
   ): this;
   /** {@inheritDoc (Voice:interface).(addListener:8)} */
   on(
     registeredEvent: Voice.Event.Registered,
-    listener: Voice.Listener.Registered
+    listener: Listener.Registered
   ): this;
 
   /**
@@ -299,12 +296,12 @@ export declare interface Voice {
    */
   addListener(
     unregisteredEvent: Voice.Event.Unregistered,
-    listener: Voice.Listener.Unregistered
+    listener: Listener.Unregistered
   ): this;
   /** {@inheritDoc (Voice:interface).(addListener:9)} */
   on(
     unregisteredEvent: Voice.Event.Unregistered,
-    listener: Voice.Listener.Unregistered
+    listener: Listener.Unregistered
   ): this;
 }
 
@@ -812,108 +809,105 @@ export namespace Voice {
      */
     'Unregistered' = 'unregistered',
   }
+}
+
+/**
+ * Listener types for all events emitted by a {@link (Voice:class)
+ * | Voice object.}
+ */
+namespace Listener {
+  /**
+   * Generic event listener. This should be the function signature of any
+   * event listener bound to any voice event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:1)}.
+   */
+  export type Generic = (...args: any[]) => void;
 
   /**
-   * Listener types for all events emitted by a {@link (Voice:class)
-   * | Voice object.}
+   * Audio devices updated event listener. This should be the function
+   * signature of an event listener bound to the
+   * {@link (Voice:namespace).Event.AudioDevicesUpdated} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:2)}.
    */
-  export namespace Listener {
-    /**
-     * Generic event listener. This should be the function signature of any
-     * event listener bound to any voice event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:1)}.
-     */
-    export type Generic = (...args: any[]) => void;
+  export type AudioDevicesUpdated = (
+    audioDevices: AudioDevice[],
+    selectedDevice: AudioDevice | null
+  ) => void;
 
-    /**
-     * Audio devices updated event listener. This should be the function
-     * signature of an event listener bound to the
-     * {@link (Voice:namespace).Event.AudioDevicesUpdated} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:2)}.
-     */
-    export type AudioDevicesUpdated = (
-      audioDevices: AudioDevice[],
-      selectedDevice: AudioDevice | null
-    ) => void;
+  /**
+   * Call invite event listener. This should be the function signature of an
+   * event listener bound to the
+   * {@link (Voice:namespace).Event.CallInvite} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:3)}.
+   */
+  export type CallInvite = (callInvite: CallInvite) => void;
 
-    /**
-     * Call invite event listener. This should be the function signature of an
-     * event listener bound to the
-     * {@link (Voice:namespace).Event.CallInvite} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:3)}.
-     */
-    export type CallInvite = (callInvite: CallInvite) => void;
+  /**
+   * Call invite accepted event listener. This should be the function
+   * signature of an event listener bound to the
+   * {@link (Voice:namespace).Event.CallInviteAccepted} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:4)}.
+   */
+  export type CallInviteAccepted = (callInvite: CallInvite, call: Call) => void;
 
-    /**
-     * Call invite accepted event listener. This should be the function
-     * signature of an event listener bound to the
-     * {@link (Voice:namespace).Event.CallInviteAccepted} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:4)}.
-     */
-    export type CallInviteAccepted = (
-      callInvite: CallInvite,
-      call: Call
-    ) => void;
+  /**
+   * Call invite rejected event listener. This should be the function
+   * signature of an event listener bound to the
+   * {@link (Voice:namespace).Event.CallInviteRejected} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:5)}.
+   */
+  export type CallInviteRejected = (callInvite: CallInvite) => void;
 
-    /**
-     * Call invite rejected event listener. This should be the function
-     * signature of an event listener bound to the
-     * {@link (Voice:namespace).Event.CallInviteRejected} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:5)}.
-     */
-    export type CallInviteRejected = (callInvite: CallInvite) => void;
+  /**
+   * Call invite cancelled event listener. This should be the function
+   * signature of an event listener bound to the
+   * {@link (Voice:namespace).Event.CancelledCallInvite} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:6)}.
+   */
+  export type CancelledCallInvite = (
+    cancelledCallInvite: CancelledCallInvite,
+    error?: GenericError
+  ) => void;
 
-    /**
-     * Call invite cancelled event listener. This should be the function
-     * signature of an event listener bound to the
-     * {@link (Voice:namespace).Event.CancelledCallInvite} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:6)}.
-     */
-    export type CancelledCallInvite = (
-      cancelledCallInvite: CancelledCallInvite,
-      error?: GenericError
-    ) => void;
+  /**
+   * Error event listener. This should be the function signature of an event
+   * listener bound to the
+   * {@link (Voice:namespace).Event.Error} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:7)}.
+   */
+  export type Error = (error: GenericError) => void;
 
-    /**
-     * Error event listener. This should be the function signature of an event
-     * listener bound to the
-     * {@link (Voice:namespace).Event.Error} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:7)}.
-     */
-    export type Error = (error: GenericError) => void;
+  /**
+   * Registered event listener. This should be the function signature of an
+   * event listener bound to the
+   * {@link (Voice:namespace).Event.Registered} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:7)}.
+   */
+  export type Registered = () => void;
 
-    /**
-     * Registered event listener. This should be the function signature of an
-     * event listener bound to the
-     * {@link (Voice:namespace).Event.Registered} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:7)}.
-     */
-    export type Registered = () => void;
-
-    /**
-     * Unregistered event listener. This should be the function signature of an
-     * event listener bound to the
-     * {@link (Voice:namespace).Event.Unregistered} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:8)}.
-     */
-    export type Unregistered = () => void;
-  }
+  /**
+   * Unregistered event listener. This should be the function signature of an
+   * event listener bound to the
+   * {@link (Voice:namespace).Event.Unregistered} event.
+   *
+   * @remarks
+   * See {@link (Voice:interface).(addListener:8)}.
+   */
+  export type Unregistered = () => void;
 }

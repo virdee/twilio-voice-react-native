@@ -84,11 +84,11 @@ export declare interface Call {
    * is raised.
    * @returns - The call object.
    */
-  addListener(callEvent: Call.Event, listener: Call.Listener.Generic): this;
+  addListener(callEvent: Call.Event, listener: Listener.Generic): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:1)}
    */
-  on(callEvent: Call.Event, listener: Call.Listener.Generic): this;
+  on(callEvent: Call.Event, listener: Listener.Generic): this;
 
   /**
    * Connected event. Raised when the call has successfully connected.
@@ -107,15 +107,12 @@ export declare interface Call {
    */
   addListener(
     connectedEvent: Call.Event.Connected,
-    listener: Call.Listener.Connected
+    listener: Listener.Connected
   ): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:2)}
    */
-  on(
-    connectedEvent: Call.Event.Connected,
-    listener: Call.Listener.Connected
-  ): this;
+  on(connectedEvent: Call.Event.Connected, listener: Listener.Connected): this;
 
   /**
    * Connect failure event. Raised when the call has failed to connect.
@@ -134,14 +131,14 @@ export declare interface Call {
    */
   addListener(
     connectFailureEvent: Call.Event.ConnectFailure,
-    listener: Call.Listener.ConnectFailure
+    listener: Listener.ConnectFailure
   ): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:3)}
    */
   on(
     connectFailureEvent: Call.Event.ConnectFailure,
-    listener: Call.Listener.ConnectFailure
+    listener: Listener.ConnectFailure
   ): this;
 
   /**
@@ -161,14 +158,14 @@ export declare interface Call {
    */
   addListener(
     reconnectingEvent: Call.Event.Reconnecting,
-    listener: Call.Listener.Reconnecting
+    listener: Listener.Reconnecting
   ): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:4)}
    */
   on(
     reconnectingEvent: Call.Event.Reconnecting,
-    listener: Call.Listener.Reconnecting
+    listener: Listener.Reconnecting
   ): this;
 
   /**
@@ -188,14 +185,14 @@ export declare interface Call {
    */
   addListener(
     reconnectedEvent: Call.Event.Reconnected,
-    listener: Call.Listener.Reconnected
+    listener: Listener.Reconnected
   ): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:5)}
    */
   on(
     reconnectedEvent: Call.Event.Reconnected,
-    listener: Call.Listener.Reconnected
+    listener: Listener.Reconnected
   ): this;
 
   /**
@@ -223,14 +220,14 @@ export declare interface Call {
    */
   addListener(
     disconnectedEvent: Call.Event.Disconnected,
-    listener: Call.Listener.Disconnected
+    listener: Listener.Disconnected
   ): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:6)}
    */
   on(
     disconnectedEvent: Call.Event.Disconnected,
-    listener: Call.Listener.Disconnected
+    listener: Listener.Disconnected
   ): this;
 
   /**
@@ -250,12 +247,12 @@ export declare interface Call {
    */
   addListener(
     ringingEvent: Call.Event.Ringing,
-    listener: Call.Listener.Ringing
+    listener: Listener.Ringing
   ): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:7)}
    */
-  on(ringingEvent: Call.Event.Ringing, listener: Call.Listener.Ringing): this;
+  on(ringingEvent: Call.Event.Ringing, listener: Listener.Ringing): this;
 
   /**
    * Quality warnings changed event. Raised when a call quality warning is set
@@ -282,14 +279,14 @@ export declare interface Call {
    */
   addListener(
     qualityWarningsChangedEvent: Call.Event.QualityWarningsChanged,
-    listener: Call.Listener.QualityWarningsChanged
+    listener: Listener.QualityWarningsChanged
   ): this;
   /**
    * {@inheritDoc (Call:interface).(addListener:8)}
    */
   on(
     qualityWarningsChangedEvent: Call.Event.QualityWarningsChanged,
-    listener: Call.Listener.QualityWarningsChanged
+    listener: Listener.QualityWarningsChanged
   ): this;
 }
 
@@ -1028,91 +1025,91 @@ export namespace Call {
      */
     Echo = 'echo',
   }
+}
+
+/**
+ * Listener types for all events emitted by a
+ * {@link (Call:class) | Call object.}
+ */
+namespace Listener {
+  /**
+   * Generic event listener. This should be the function signature of any
+   * event listener bound to any call event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:1)}.
+   */
+  export type Generic = (...args: any[]) => void;
 
   /**
-   * Listener types for all events emitted by a
-   * {@link (Call:class) | Call object.}
+   * Connected event listener. This should be the function signature of any
+   * event listener bound to the {@link (Call:namespace).Event.Connected}
+   * event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:2)}.
    */
-  export namespace Listener {
-    /**
-     * Generic event listener. This should be the function signature of any
-     * event listener bound to any call event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:1)}.
-     */
-    export type Generic = (...args: any[]) => void;
+  export type Connected = () => void;
 
-    /**
-     * Connected event listener. This should be the function signature of any
-     * event listener bound to the {@link (Call:namespace).Event.Connected}
-     * event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:2)}.
-     */
-    export type Connected = () => void;
+  /**
+   * Connect failure event listener. This should be the function signature of
+   * any event listener bound to the
+   * {@link (Call:namespace).Event.ConnectFailure} event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:3)}.
+   */
+  export type ConnectFailure = (error: GenericError) => void;
 
-    /**
-     * Connect failure event listener. This should be the function signature of
-     * any event listener bound to the
-     * {@link (Call:namespace).Event.ConnectFailure} event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:3)}.
-     */
-    export type ConnectFailure = (error: GenericError) => void;
+  /**
+   * Reconnecting event listener. This should be the function signature of any
+   * event listener bound to the {@link (Call:namespace).Event.Reconnecting}
+   * event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:4)}.
+   */
+  export type Reconnecting = (error: GenericError) => void;
 
-    /**
-     * Reconnecting event listener. This should be the function signature of any
-     * event listener bound to the {@link (Call:namespace).Event.Reconnecting}
-     * event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:4)}.
-     */
-    export type Reconnecting = (error: GenericError) => void;
+  /**
+   * Reconnected event listener. This should be the function signature of any
+   * event listener bound to the {@link (Call:namespace).Event.Reconnected}
+   * event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:5)}.
+   */
+  export type Reconnected = () => void;
 
-    /**
-     * Reconnected event listener. This should be the function signature of any
-     * event listener bound to the {@link (Call:namespace).Event.Reconnected}
-     * event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:5)}.
-     */
-    export type Reconnected = () => void;
+  /**
+   * Disconnected event listener. This should be the function signature of any
+   * event listener bound to the {@link (Call:namespace).Event.Disconnected}
+   * event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:6)}.
+   */
+  export type Disconnected = (error?: GenericError) => void;
 
-    /**
-     * Disconnected event listener. This should be the function signature of any
-     * event listener bound to the {@link (Call:namespace).Event.Disconnected}
-     * event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:6)}.
-     */
-    export type Disconnected = (error?: GenericError) => void;
+  /**
+   * Ringing event listener. This should be the function signature of any
+   * event listener bound to the {@link (Call:namespace).Event.Ringing} event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:7)}.
+   */
+  export type Ringing = () => void;
 
-    /**
-     * Ringing event listener. This should be the function signature of any
-     * event listener bound to the {@link (Call:namespace).Event.Ringing} event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:7)}.
-     */
-    export type Ringing = () => void;
-
-    /**
-     * Quality warnings changed event listener. This should be the function
-     * signature of any event listener bound to the
-     * {@link (Call:namespace).Event.QualityWarningsChanged} event.
-     *
-     * @remarks
-     * See {@link (Call:interface).(addListener:8)}.
-     */
-    export type QualityWarningsChanged = (
-      currentQualityWarnings: Call.QualityWarning[],
-      previousQualityWarnings: Call.QualityWarning[]
-    ) => void;
-  }
+  /**
+   * Quality warnings changed event listener. This should be the function
+   * signature of any event listener bound to the
+   * {@link (Call:namespace).Event.QualityWarningsChanged} event.
+   *
+   * @remarks
+   * See {@link (Call:interface).(addListener:8)}.
+   */
+  export type QualityWarningsChanged = (
+    currentQualityWarnings: Call.QualityWarning[],
+    previousQualityWarnings: Call.QualityWarning[]
+  ) => void;
 }
