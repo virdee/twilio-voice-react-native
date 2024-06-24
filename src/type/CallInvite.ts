@@ -1,6 +1,11 @@
 import type { Constants } from '../constants';
 import type { CustomParameters, Uuid } from './common';
 import type { NativeErrorInfo } from './Error';
+import type { NativeCallMessageInfo } from './CallMessage';
+
+export interface BaseNativeCallInviteEvent {
+  callSid: string;
+}
 
 export interface NativeCallInviteInfo {
   uuid: Uuid;
@@ -10,25 +15,28 @@ export interface NativeCallInviteInfo {
   to: string;
 }
 
-export interface NativeCallInviteEvent {
-  type: Constants.VoiceEventCallInvite;
+export interface NativeCallInviteAcceptedEvent
+  extends BaseNativeCallInviteEvent {
+  type: Constants.CallInviteEventTypeValueAccepted;
   callInvite: NativeCallInviteInfo;
 }
 
-export interface NativeCallInviteAcceptedEvent {
-  type: Constants.VoiceEventCallInviteAccepted;
+export interface NativeCallInviteNotificationTappedEvent
+  extends BaseNativeCallInviteEvent {
+  type: Constants.CallInviteEventTypeValueNotificationTapped;
+}
+
+export interface NativeCallInviteRejectedEvent
+  extends BaseNativeCallInviteEvent {
+  type: Constants.CallInviteEventTypeValueRejected;
   callInvite: NativeCallInviteInfo;
 }
 
-export interface NativeCallInviteRejectedEvent {
-  type: Constants.VoiceEventCallInviteRejected;
-  callInvite: NativeCallInviteInfo;
-}
-
-export interface NativeCancelledCallInviteEvent {
-  type: Constants.VoiceEventCallInviteCancelled;
+export interface NativeCallInviteCancelledEvent
+  extends BaseNativeCallInviteEvent {
+  type: Constants.CallInviteEventTypeValueCancelled;
   cancelledCallInvite: NativeCancelledCallInviteInfo;
-  error: NativeErrorInfo;
+  error?: NativeErrorInfo;
 }
 
 export interface NativeCancelledCallInviteInfo {
@@ -36,3 +44,16 @@ export interface NativeCancelledCallInviteInfo {
   from: string;
   to: string;
 }
+
+export interface NativeCallInviteMessageReceivedEvent
+  extends BaseNativeCallInviteEvent {
+  type: Constants.CallEventMessageReceived;
+  [Constants.CallMessage]: NativeCallMessageInfo;
+}
+
+export type NativeCallInviteEvent =
+  | NativeCallInviteNotificationTappedEvent
+  | NativeCallInviteAcceptedEvent
+  | NativeCallInviteRejectedEvent
+  | NativeCallInviteCancelledEvent
+  | NativeCallInviteMessageReceivedEvent;

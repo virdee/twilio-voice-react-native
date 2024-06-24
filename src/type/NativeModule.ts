@@ -1,4 +1,4 @@
-import type { EventSubscriptionVendor } from 'react-native';
+import type { NativeModulesStatic } from 'react-native';
 import type { Call } from '../Call';
 import type { CallInvite } from '../CallInvite';
 import type { NativeAudioDevicesInfo } from './AudioDevice';
@@ -7,7 +7,16 @@ import type { NativeCallInviteInfo } from './CallInvite';
 import type { Uuid } from './common';
 import type { RTCStats } from './RTCStats';
 
-export interface TwilioVoiceReactNative extends EventSubscriptionVendor {
+export interface TwilioVoiceReactNative extends NativeModulesStatic {
+  /**
+   * Native types.
+   *
+   * The following event related functions are required by the React Native
+   * bindings.
+   */
+  addListener: (eventType: string) => void;
+  removeListeners: (count: number) => void;
+
   /**
    * Call bindings.
    */
@@ -23,6 +32,12 @@ export interface TwilioVoiceReactNative extends EventSubscriptionVendor {
     issue: Call.Issue
   ): Promise<void>;
   call_sendDigits(callUuid: Uuid, digits: string): Promise<void>;
+  call_sendMessage(
+    callUuid: Uuid,
+    content: string,
+    contentType: string,
+    messageType: string
+  ): Promise<string>;
 
   /**
    * Call Invite bindings.
@@ -33,14 +48,27 @@ export interface TwilioVoiceReactNative extends EventSubscriptionVendor {
   ): Promise<NativeCallInfo>;
   callInvite_isValid(callInviteUuid: Uuid): Promise<boolean>;
   callInvite_reject(callInviteUuid: Uuid): Promise<void>;
+  callInvite_updateCallerHandle(
+    callInviteUuid: Uuid,
+    handle: string
+  ): Promise<void>;
 
   /**
    * Voice bindings.
    */
-  voice_connect(
+  voice_connect_android(
     token: string,
     twimlParams: Record<string, any>
   ): Promise<NativeCallInfo>;
+  voice_connect_ios(
+    token: string,
+    twimlParams: Record<string, any>,
+    contactHandle: string
+  ): Promise<NativeCallInfo>;
+  voice_initializePushRegistry(): Promise<void>;
+  voice_setCallKitConfiguration(
+    configuration: Record<string, any>
+  ): Promise<void>;
   voice_getAudioDevices(): Promise<NativeAudioDevicesInfo>;
   voice_getCalls(): Promise<NativeCallInfo[]>;
   voice_getCallInvites(): Promise<NativeCallInviteInfo[]>;
