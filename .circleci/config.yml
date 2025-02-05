@@ -1,6 +1,12 @@
 version: 2.1
 
 ###
+# Orbs
+###
+orbs:
+  android: circleci/android@2.5.0
+
+###
 # Parameters
 ###
 parameters:
@@ -14,30 +20,38 @@ parameters:
     type: string
     default: "echo \"no release-command specified\""
 
+###
+# Executors
+###
 executors:
   default:
     docker:
-      - image: cimg/node:lts
+      - image: cimg/node:18.19
     working_directory: ~/project
+  ios-executor:
+    macos:
+      xcode: "14.3.1"
+      resource_class: macos.m1.medium.gen1
 
+###
+# Commands
+###
 commands:
   attach_project:
     steps:
       - attach_workspace:
           at: ~/project
+
   install-dependencies:
     steps:
       - run:
           name: Install dependencies
           command: |
             yarn run build:constants
-            yarn install --cwd example --frozen-lockfile
+            yarn install --cwd test/app --frozen-lockfile
             yarn install --frozen-lockfile
-  setup-detox-dependencies:
-    description: Setup environment for running test on detox
-    steps:
-      - run: npm install -g detox-cli && npm link detox
-      - run: npm install -g jest && npm link jest
+            yarn run build:errors
+
   setup-pods:
     description: Setup pods used for ios builds
     steps:
@@ -48,7 +62,9 @@ commands:
       - run:
           name: Install cocoapods if cache does not exist
           command: |
-            cd example/ios && pod install && cd ../..
+            cd test/app/ios
+            pod install
+            cd ../../..
 
   simulator-dependencies:
     description: "Install iOS simulator dependencies"
@@ -58,13 +74,24 @@ commands:
           command: |
             HOMEBREW_NO_AUTO_UPDATE=1 brew tap wix/brew
             HOMEBREW_NO_AUTO_UPDATE=1 brew install applesimutils
-  setup-e2e-creds:
-    description: "Decode account credentials for e2e tests"
+
+  generate-client-identity:
+    description: "Generate a client id"
     steps:
       - run:
-          name: "Decode creds"
+          name: "Generate client id"
           command: |
-            echo "export const token ='$(curl $ACCESS_TOKEN_URL)'" >> example/src/e2e-tests-token.ts
+            export CLIENT_IDENTITY=client-id-$CIRCLE_JOB-$CIRCLE_WORKFLOW_JOB_ID
+            echo "export CLIENT_IDENTITY=$CLIENT_IDENTITY" >> "$BASH_ENV"
+
+  setup-e2e-creds:
+    description: "Generate an access token for e2e tests"
+    steps:
+      - run:
+          name: "Generate access token"
+          command: |
+            node test/scripts/gen-token.mjs $CLIENT_IDENTITY test/app/src/e2e-tests-token.ts
+
   clear-detox-cache:
     description: "Clears detox framework cache"
     steps:
@@ -72,10 +99,11 @@ commands:
           working_directory: .
           name: Clear detox cache
           command: |
-            cd example
+            cd test/app
             detox clean-framework-cache
             detox build-framework-cache
-            cd ../
+            cd ../..
+
   detox-build:
     description: Builds the app with given Detox configuration, as specified in detoxrc.json file
     parameters:
@@ -86,10 +114,11 @@ commands:
       - run:
           name: Detox Build
           command: |
-            cd example 
-            detox build -c <<parameters.configuration>>
-            cd ..
+            cd test/app
+            yarn detox:build -c <<parameters.configuration>>
+            cd ../..
           no_output_timeout: 20m
+
   detox-test:
     description: Tests the app with the given Detox configuration, as specified in detoxrc.json file
     parameters:
@@ -114,10 +143,13 @@ commands:
       - run:
           name: Detox Test
           command: |
-            cd example
-            detox test -c <<parameters.configuration>> -l <<parameters.loglevel>> -a=<<parameters.artifacts>> --take-screenshots=<<parameters.screenshots>> --ci --forceExit --detectOpenHandles
-            cd ..
+            cd test/app
+            yarn detox:test -c <<parameters.configuration>> -l <<parameters.loglevel>> -a=<<parameters.artifacts>> --take-screenshots=<<parameters.screenshots>> --ci --forceExit --detectOpenHandles
+            cd ../..
 
+###
+# Jobs
+###
 jobs:
   cache-install-dependencies:
     executor: default
@@ -130,15 +162,15 @@ jobs:
             - dependencies-
       - restore_cache:
           keys:
-            - dependencies-example-{{ checksum "example/package.json" }}
-            - dependencies-example-
+            - dependencies-test-application-{{ checksum "test/app/package.json" }}
+            - dependencies-test-application-
       - install-dependencies
       - save_cache:
           key: dependencies-{{ checksum "package.json" }}
           paths: node_modules
       - save_cache:
-          key: dependencies-example-{{ checksum "example/package.json" }}
-          paths: example/node_modules
+          key: dependencies-test-application-{{ checksum "test/app/package.json" }}
+          paths: test/app/node_modules
       - persist_to_workspace:
           root: .
           paths: .
@@ -182,6 +214,26 @@ jobs:
           command: |
             yarn run prepare
 
+  build-docs:
+    executor: default
+    steps:
+      - attach_project
+      - run:
+          name: Build docs and check for API changes
+          command: |
+            yarn run build:docs
+            git diff --exit-code api/
+
+  build-errors:
+    executor: default
+    steps:
+      - attach_project
+      - run:
+          name: Build errors and check for changes
+          command: |
+            yarn run build:errors
+            git diff --exit-code src/error/generated.ts
+
   run-release:
     executor:
       name: default
@@ -199,11 +251,11 @@ jobs:
       - unless:
           condition: << parameters.dry-run >>
           steps:
-            - run: << pipeline.parameters.release_command >>  
+            - run: << pipeline.parameters.release_command >>
 
   e2e-ios:
-    macos:
-      xcode: "12.5.1"
+    executor:
+      name: ios-executor
     parameters:
       detox_configuration:
         type: string
@@ -212,9 +264,9 @@ jobs:
         type: string
     steps:
       - checkout
-      - setup-e2e-creds
-      - setup-detox-dependencies
       - install-dependencies
+      - generate-client-identity
+      - setup-e2e-creds
       - setup-pods
       - simulator-dependencies
       # run E2E tests
@@ -224,7 +276,83 @@ jobs:
           configuration: <<parameters.detox_configuration>>
           artifacts: <<parameters.artifacts_location>>
       - store_artifacts:
-          path: ./example/test-report.html
+          path: ./test/app/test-report.html
+
+  e2e-android:
+    executor:
+      name: android/android-machine
+      resource-class: large
+      tag: 2024.04.1
+    parameters:
+      detox_configuration:
+        type: string
+    steps:
+      - android/change-java-version:
+          java-version: 17
+      - checkout
+      - install-dependencies
+      - generate-client-identity
+      - setup-e2e-creds
+      - android/create-avd:
+          avd-name: TwilioVoiceReactNativeReferenceApp_AVD
+          install: true
+          system-image: system-images;android-29;google_apis;x86_64
+          additional-args: --device pixel_4
+      - android/start-emulator:
+          avd-name: TwilioVoiceReactNativeReferenceApp_AVD
+          memory: 8192
+          post-emulator-launch-assemble-command: ""
+          restore-gradle-cache-post-emulator-launch: false
+          wait-for-emulator: true
+      - run:
+          name: "Save Google Services"
+          command: |
+            cd test/app/android/app
+            echo $GOOGLE_SERVICES_JSON > google-services.json
+            cd ../../../..
+      - run:
+          name: "Start relay server"
+          background: true
+          command: |
+            cd test/app
+            yarn run detox:relay-server
+            cd ../..
+      - detox-build:
+          configuration: <<parameters.detox_configuration>>
+      - detox-test:
+          configuration: <<parameters.detox_configuration>>
+          artifacts: ./detox_artifacts
+          screenshots: all
+      - run:
+          name: "Save Android logs"
+          when: always
+          command: |
+            cd test/app
+            adb logcat -d > ./detox_artifacts/logcat.txt
+            cd ../..
+      - store_artifacts:
+          when: always
+          path: ./test/app/detox_artifacts
+
+  trigger-qe-tests:
+    executor:
+      name: default
+    steps:
+      - run:
+          name: Trigger standard QE tests 
+          command: |
+            curl --fail --write-out "\nHTTP Response Code: %{http_code}\n" \
+            -u "$CIRCLECI_PERSONAL_API_TOKEN": -X POST --header "Content-Type: application/json" \
+            -d '{"branch":"main","parameters":{"rc-version":"'$CIRCLE_TAG'","rc-testing":true}}' \
+            $SDKS_QE_CIRCLECI_VOICE_REACT_SLAVE_PIPELINE_ENDPOINT
+      - run:
+          name: Trigger custom android messaging QE tests 
+          command: |
+            curl --fail --write-out "\nHTTP Response Code: %{http_code}\n" \
+            -u "$CIRCLECI_PERSONAL_API_TOKEN": -X POST --header "Content-Type: application/json" \
+            -d '{"branch":"custom-android-messaging","parameters":{"rc-version":"'$CIRCLE_TAG'","rc-testing":true}}' \
+            $SDKS_QE_CIRCLECI_VOICE_REACT_SLAVE_PIPELINE_ENDPOINT
+      
 
 ###
 # Workflows
@@ -252,10 +380,20 @@ workflows:
       - build-package:
           requires:
             - cache-install-dependencies
-      - e2e-ios:
-          detox_configuration: ios.release
+      - build-docs:
           requires:
             - cache-install-dependencies
+      - build-errors:
+          requires:
+            - cache-install-dependencies
+      - e2e-ios:
+          context:
+            - vblocks-js
+          detox_configuration: ios.sim.release
+      - e2e-android:
+          context:
+            - vblocks-js
+          detox_configuration: android.emu.release
 
   ###
   # Release workflow
@@ -288,3 +426,13 @@ workflows:
           dry-run: false
           requires:
             - Release approval
+      - trigger-qe-tests:
+          context: sdks-qe
+          filters:
+            tags:
+              only:
+              - /^\d+\.\d+\.\d+-rc\d+$/
+              - /^\d+\.\d+\.\d+-preview\d+-rc\d+$/
+              - /^\d+\.\d+\.\d+-beta\d+-rc\d+$/
+            branches:
+              ignore: /.*/

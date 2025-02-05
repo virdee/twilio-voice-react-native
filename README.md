@@ -1,67 +1,63 @@
 # Twilio Voice React Native SDK
-
-[![NPM](https://img.shields.io/npm/v/%40twilio/voice-react-native-sdk.svg?color=blue)](https://www.npmjs.com/package/%40twilio/voice-react-native-sdk)
-
-**_WARNING - PLEASE READ:_**
-
-This is a Pilot release.
-
-That means:
-- The SDK and associated open source repo are offered as-is. While we take professional pride in all releases, including Pilots, there may be vulnerabilities or bugs present that we’re not yet aware of. 
-- We’ve targeted this release to “power users”; documentation is sparse and code samples non-existent. These will come in later (public) releases.
-- Although rare in practice, we reserve the right to introduce breaking API changes in future releases before ultimately going stable/GA.
-- We will tear out the embedded example app and replace it with a proper Quickstart in our first public release. As such, we do not plan to invest any time into fixing or enhancing the current example app.
-- Traditional Twilio Support channels and resources are not available to help. 
-- We welcome your feedback and SDK bug reports (note: non-example app bugs) via the [issues](https://github.com/twilio/twilio-voice-react-native/issues) page.
+[![NPM](https://img.shields.io/npm/v/%40twilio/voice-react-native-sdk.svg?color=blue)](https://www.npmjs.com/package/%40twilio/voice-react-native-sdk) [![CircleCI](https://dl.circleci.com/status-badge/img/gh/twilio/twilio-voice-react-native/tree/main.svg?style=shield)](https://dl.circleci.com/status-badge/redirect/gh/twilio/twilio-voice-react-native/tree/main)
 
 Twilio's Voice React Native SDK allows you to add real-time voice and PSTN calling to your React Native apps.
 
-Please check out the following if you are new to Twilio's Programmable Voice or React Native. Also, please checkout our [common issues](COMMON_ISSUES.md) page or contact [help@twilio.com](mailto:help@twilio.com) if you need technical support.
+- [Documentation](https://www.twilio.com/docs/voice/sdks/react-native)
+- [API Reference](https://github.com/twilio/twilio-voice-react-native/blob/latest/docs/api/voice-react-native-sdk.md)
+- [Reference App](https://github.com/twilio/twilio-voice-react-native-app)
+
+Please check out the following if you are new to Twilio's Programmable Voice or React Native.
 
 - [Programmable Voice](https://www.twilio.com/docs/voice/sdks)
 - [React Native](https://reactnative.dev/docs/getting-started)
 
-## Prerequisites
-
-### Incoming Calls
-
-To allow for incoming calls, you need to create a push credential for [Android](https://github.com/twilio/voice-quickstart-android/blob/master/Docs/manage-push-credentials.md) and [iOS](https://github.com/twilio/voice-quickstart-ios#6-create-a-push-credential-with-your-voip-service-certificate). Additionally, for Android, you need to download the `google-services.json` file from the Firebase console and place it under `/app` directory.
-
-### Access Tokens
-
-An Access Token is required to make outgoing calls or receive incoming calls. Please check out this [page](https://www.twilio.com/docs/iam/access-tokens#create-an-access-token-for-voice) for more details on creating Access Tokens.
-
 ## Installation
-
 The package is available through [npm](https://www.npmjs.com/package/@twilio/voice-react-native-sdk).
 
 ```sh
 yarn add @twilio/voice-react-native-sdk
 ```
 
-## Usage
+Once the package has been installed to your React Native application, there are further steps that you will need to take for both iOS and Android platforms. Please see the supporting documentation below.
 
-The following simple example demonstrates how to make and receive calls. You will need to implement your own `getAccessToken()` method for it to work properly. Please see [Access Tokens](#access-tokens) section for more details or check out the [iOS](https://github.com/twilio/voice-quickstart-ios) and [Android](https://github.com/twilio/voice-quickstart-android) quickstart for examples on how to generate the tokens.
-For more information on the Voice React Native SDK API, refer to the [API Docs](https://github.com/twilio/twilio-voice-react-native/blob/1.0.0-preview.1/docs/voice-react-native-sdk.md) or try running the [example app](example).
+## Supporting Documentation
 
-```ts
-import { Voice } from '@twilio/voice-react-native-sdk';
+### Getting Started
 
-const token = getAccessToken();
-const voice = new Voice();
+#### iOS
+Learn how to get started for the [iOS platform](/docs/getting-started-ios.md).
 
-// Allow incoming calls
-await voice.register(token);
+#### Android
+Learn how to get started for the Android platform if you are using [Java](/docs/getting-started-android-java.md) or [Kotlin](/docs/getting-started-android-kotlin.md).
 
-// Handle incoming calls
-voice.on('callInvite', (callInvite) => {
-  callInvite.accept();
-});
+### Migration Guide
+If you are migrating from a version of the Twilio Voice React Native SDK `< 1.0.0.beta.4` to a version `>= 1.0.0.beta.4`, please see [this](/docs/migration-guide-beta.4.md) document.
 
-// Make an outgoing call
-const call = await voice.connect(token, params);
-```
+### Customizing Notifications
+To customize the appearance and content of your application's notifications, please see [this](/docs/customize-notifications.md) document.
+
+### Outgoing Call Ringback Tone
+To enable your application to play a ringback tone while making an outgoing call, please see [this](/docs/play-outgoing-call-ringback-tone.md) document.
+
+### Out-of-band PushKit Handling
+To have your application implement or use its own `PushKit` delegate module, please see [this](/docs/applications-own-pushkit-handler.md) document.
+
+### Out-of-band Firebase Messaging Service
+To have your application implement or use a different `FirebaseMessagingService` (such as OneSignal or RNFirebase), please see [this](/docs/out-of-band-firebase-messaging-service.md) document.
+
+## Issues and Support
+Please check out our [common issues](/COMMON_ISSUES.md) page or file any issues you find here on Github. For general inquiries related to the Voice SDK you can file a support ticket.
+
+Please ensure that you are not sharing any [Personally Identifiable Information(PII)](https://www.twilio.com/docs/glossary/what-is-personally-identifiable-information-pii) or sensitive account information (API keys, credentials, etc.) when reporting an issue.
+
+Please check out our [known issues](/KNOWN_ISSUES.md) for known bugs and workarounds.
+
+## Related
+- [Reference App](https://github.com/twilio/twilio-voice-react-native-app)
+- [Twilio Voice JS](https://github.com/twilio/twilio-voice.js)
+- [Twilio Voice iOS](https://github.com/twilio/voice-quickstart-ios)
+- [Twilio Voice Android](https://github.com/twilio/voice-quickstart-android)
 
 ## License
-
-See [LICENSE](LICENSE)
+See [LICENSE](/LICENSE)

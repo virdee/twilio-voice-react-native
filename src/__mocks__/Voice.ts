@@ -1,7 +1,6 @@
 import { Constants } from '../constants';
 import { createNativeAudioDevicesInfo } from './AudioDevice';
 import { createNativeCallInviteInfo } from './CallInvite';
-import { createNativeCancelledCallInviteInfo } from './CancelledCallInvite';
 import { createNativeErrorInfo } from './Error';
 
 /**
@@ -16,32 +15,10 @@ export const mockVoiceNativeEvents = {
     },
   },
   callInvite: {
-    name: Constants.VoiceEventCallInvite,
+    name: Constants.VoiceEventTypeValueIncomingCallInvite,
     nativeEvent: {
-      type: Constants.VoiceEventCallInvite,
+      type: Constants.VoiceEventTypeValueIncomingCallInvite,
       callInvite: createNativeCallInviteInfo(),
-    },
-  },
-  callInviteAccepted: {
-    name: Constants.VoiceEventCallInviteAccepted,
-    nativeEvent: {
-      type: Constants.VoiceEventCallInviteAccepted,
-      callInvite: createNativeCallInviteInfo(),
-    },
-  },
-  callInviteRejected: {
-    name: Constants.VoiceEventCallInviteRejected,
-    nativeEvent: {
-      type: Constants.VoiceEventCallInviteRejected,
-      callInvite: createNativeCallInviteInfo(),
-    },
-  },
-  cancelledCallInvite: {
-    name: Constants.VoiceEventCallInviteCancelled,
-    nativeEvent: {
-      type: Constants.VoiceEventCallInviteCancelled,
-      cancelledCallInvite: createNativeCancelledCallInviteInfo(),
-      error: createNativeErrorInfo(),
     },
   },
   error: {

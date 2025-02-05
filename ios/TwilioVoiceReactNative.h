@@ -24,6 +24,7 @@ FOUNDATION_EXPORT NSString * const kTwilioVoiceReactNativeEventKeyCancelledCallI
 @interface TwilioVoiceReactNative : RCTEventEmitter <RCTBridgeModule>
 
 @property (nonatomic, readonly, strong) NSMutableDictionary<NSString *, TVOCall *> *callMap;
+@property (nonatomic, readonly, strong) NSMutableDictionary<NSString *, NSString *> *callConnectMap;
 @property (nonatomic, readonly, strong) NSMutableDictionary<NSString *, TVOCallInvite *> *callInviteMap;
 @property (nonatomic, readonly, strong) NSMutableDictionary<NSString *, TVOCancelledCallInvite *> *cancelledCallInviteMap;
 
@@ -42,6 +43,8 @@ FOUNDATION_EXPORT NSString * const kTwilioVoiceReactNativeEventKeyCancelledCallI
 
 + (TVODefaultAudioDevice *)twilioAudioDevice;
 
+@property(nonatomic, strong) NSString *incomingCallContactHandleTemplate;
+
 @end
 
 @interface TwilioVoiceReactNative (EventEmitter)
@@ -54,13 +57,16 @@ FOUNDATION_EXPORT NSString * const kTwilioVoiceReactNativeEventKeyCancelledCallI
 @interface TwilioVoiceReactNative (CallKit)
 
 - (void)initializeCallKit;
+- (void)initializeCallKitWithConfiguration:(NSDictionary *)configuration;
 - (void)makeCallWithAccessToken:(NSString *)accessToken
-                         params:(NSDictionary *)params;
+                         params:(NSDictionary *)params
+                  contactHandle:(NSString *)contactHandle;
 - (void)reportNewIncomingCall:(TVOCallInvite *)callInvite;
 - (void)endCallWithUuid:(NSUUID *)uuid;
 /* Initiate the answering from the app UI */
 - (void)answerCallInvite:(NSUUID *)uuid
               completion:(void(^)(BOOL success))completionHandler;
+- (void)updateCall:(NSString *)uuid callerHandle:(NSString *)handle;
 
 /* Utility */
 - (NSDictionary *)callInfo:(TVOCall *)call;

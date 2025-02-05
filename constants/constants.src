@@ -1,9 +1,12 @@
 // React Native Voice SDK
 ReactNativeVoiceSDK=react-native
+ReactNativeVoiceSDKVer=1.4.0-dev
 
 // Scope names
 ScopeVoice=scopeVoice
 ScopeCall=scopeCall
+ScopeCallMessage=scopeCallMessage
+ScopeCallInvite=scopeCallInvite
 
 // Voice events
 // Common
@@ -26,6 +29,15 @@ CallInfoFrom=from
 CallInfoTo=to
 CallInfoIsMuted=isMuted
 CallInfoIsOnHold=isOnHold
+CallInfoState=state
+CallInfoInitialConnectedTimestamp=initialConnectedTimestamp
+
+// Call States
+CallStateConnected=connected
+CallStateConnecting=connecting
+CallStateDisconnected=disconnected
+CallStateReconnecting=reconnecting
+CallStateRinging=ringing
 
 // Call Invite Info
 CallInviteInfoUuid=uuid
@@ -41,11 +53,16 @@ CancelledCallInviteInfoFrom=from
 CancelledCallInviteInfoTo=to
 CancelledCallInviteInfoCustomParameters=customParameters
 
-// Call Invite
-VoiceEventCallInvite=voiceEventCallInvite
-VoiceEventCallInviteAccepted=voiceEventCallInviteAccepted
-VoiceEventCallInviteRejected=voiceEventCallInviteRejected
-VoiceEventCallInviteCancelled=voiceEventCallInviteCancelled
+// Incoming Call Invite event
+VoiceEventTypeValueIncomingCallInvite=voiceEventTypeValueIncomingCallInvite
+
+// Call Message
+VoiceEventSid=voiceEventSid
+CallMessage=callMessage
+CallMessageContent=content
+CallMessageContentType=contentType
+CallMessageMessageType=messageType
+JSEventKeyCallMessageInfo=callMessage
 
 // Audio Devices Updated Event
 VoiceEventAudioDevicesUpdated=voiceEventAudioDevicesUpdated
@@ -56,6 +73,17 @@ AudioDeviceKeyName=name
 AudioDeviceKeyType=type
 AudioDeviceKeyAudioDevices=audioDevices
 AudioDeviceKeySelectedDevice=selectedDevice
+AudioDeviceKeyEarpiece=earpiece
+AudioDeviceKeySpeaker=speaker
+AudioDeviceKeyBluetooth=bluetooth
+
+// CallInvite events
+CallInviteEventKeyType=type
+CallInviteEventTypeValueAccepted=callInviteEventTypeValueCallInviteAccepted
+CallInviteEventTypeValueNotificationTapped=callInviteEventTypeValueCallInviteNotificationTapped
+CallInviteEventTypeValueRejected=callInviteEventTypeValueCallInviteRejected
+CallInviteEventTypeValueCancelled=callInviteEventTypeValueCallInviteCancelled
+CallInviteEventKeyCallSid=callSid
 
 // Call events
 // State
@@ -71,9 +99,27 @@ CallEventQualityWarningsChanged=callEventQualityWarningsChanged
 CallEventCurrentWarnings=callEventCurrentWarnings
 CallEventPreviousWarnings=callEventPreviousWarnings
 
-// Post feedback
-Score=score
-Issue=issue
+// Call message events
+CallEventMessageFailure=callEventMessageFailure
+CallEventMessageReceived=callEventMessageReceived
+CallEventMessageSent=callEventMessageSent
+
+// Call feedback score
+CallFeedbackScoreNotReported=callFeedbackScoreNotReported
+CallFeedbackScoreOne=callFeedbackScoreOne
+CallFeedbackScoreTwo=callFeedbackScoreTwo
+CallFeedbackScoreThree=callFeedbackScoreThree
+CallFeedbackScoreFour=callFeedbackScoreFour
+CallFeedbackScoreFive=callFeedbackScoreFive
+
+// Call feedback issue
+CallFeedbackIssueNotReported=callFeedbackIssueNotReported
+CallFeedbackIssueDroppedCall=callFeedbackIssueDroppedCall
+CallFeedbackIssueAudioLatency=callFeedbackIssueAudioLatency
+CallFeedbackIssueOneWayAudio=callFeedbackIssueOneWayAudio
+CallFeedbackIssueChoppyAudio=callFeedbackIssueChoppyAudio
+CallFeedbackIssueNoisyCall=callFeedbackIssueNoisyCall
+CallFeedbackIssueEcho=callFeedbackIssueEcho
 
 // StatsReport
 PeerConnectionId=peerConnectionId
@@ -135,3 +181,11 @@ StateInProgress=stateInProgress
 StateSucceeded=stateSucceeded
 StateWaiting=stateWaiting
 StateUnknown=stateUnknown
+
+// iOS CallKit configuration
+CallKitMaximumCallsPerCallGroup=callKitMaximumCallsPerCallGroup
+CallKitMaximumCallGroups=callKitMaximumCallGroups
+CallKitIncludesCallsInRecents=callKitIncludesCallsInRecents
+CallKitSupportedHandleTypes=callKitSupportedHandleTypes
+CallKitIconTemplateImageData=callKitIconTemplateImageData
+CallKitRingtoneSound=callKitRingtoneSound

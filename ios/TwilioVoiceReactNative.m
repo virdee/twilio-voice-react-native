@@ -12,6 +12,10 @@
 #import "TwilioVoiceReactNativeConstants.h"
 #import "TwilioVoiceStatsReport.h"
 
+NSString * const kTwilioVoiceReactNativeVoiceError = @"Voice error";
+dispatch_time_t const kPushRegistryDeviceTokenRetryTimeout = 3;
+dispatch_time_t const kExponentialBackoff = 2;
+
 // Call & call invite
 NSString * const kTwilioVoiceReactNativeEventKeyCall = @"call";
 NSString * const kTwilioVoiceReactNativeEventKeyCallInvite = @"callInvite";
@@ -19,9 +23,6 @@ NSString * const kTwilioVoiceReactNativeEventKeyCancelledCallInvite = @"cancelle
 
 // Audio device
 NSString * const kTwilioVoiceAudioDeviceUid = @"uid";
-NSString * const kTwilioVoiceAudioDeviceEarpiece = @"Earpiece";
-NSString * const kTwilioVoiceAudioDeviceSpeaker = @"Speaker";
-NSString * const kTwilioVoiceAudioDeviceBluetooth = @"Bluetooth";
 
 static TVODefaultAudioDevice *sTwilioAudioDevice;
 
@@ -41,7 +42,7 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
     if (self = [super initWithFrame:frame]) {
         self.hidden = YES;
     }
-    
+
     return self;
 }
 
@@ -62,9 +63,12 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 
 @interface TwilioVoiceReactNative ()
 
+@property (nonatomic, strong) TwilioVoicePushRegistry *twilioVoicePushRegistry;
+
 @property(nonatomic, strong) NSData *deviceTokenData;
 @property(nonatomic, strong) NSMutableDictionary *audioDevices;
 @property(nonatomic, strong) NSDictionary *selectedAudioDevice;
+@property(nonatomic, assign) BOOL registrationInProgress;
 
 @end
 
@@ -75,12 +79,16 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 - (instancetype)init {
     if (self = [super init]) {
         _callMap = [NSMutableDictionary dictionary];
+        _callConnectMap = [NSMutableDictionary dictionary];
         _callInviteMap = [NSMutableDictionary dictionary];
         _cancelledCallInviteMap = [NSMutableDictionary dictionary];
         _audioDevices = [NSMutableDictionary dictionary];
 
         NSString *reactNativeSDK = kTwilioVoiceReactNativeReactNativeVoiceSDK;
         setenv("global-env-sdk", [reactNativeSDK UTF8String], 1);
+
+        NSString *reactNativeSdkVersion = kTwilioVoiceReactNativeReactNativeVoiceSDKVer;
+        setenv("com.twilio.voice.env.sdk.version", [reactNativeSdkVersion UTF8String], 1);
 
         sTwilioAudioDevice = [TVODefaultAudioDevice audioDevice];
         TwilioVoiceSDK.audioDevice = sTwilioAudioDevice;
@@ -93,6 +101,11 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
     }
 
     return self;
+}
+
+- (void)initializePushRegistry {
+    self.twilioVoicePushRegistry = [TwilioVoicePushRegistry new];
+    [self.twilioVoicePushRegistry updatePushRegistry];
 }
 
 - (void)subscribeToNotifications {
@@ -113,38 +126,16 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 
 - (void)handlePushRegistryNotification:(NSNotification *)notification {
     NSMutableDictionary *eventBody = [notification.userInfo mutableCopy];
-    if ([eventBody[kTwilioVoiceReactNativeVoiceEventType] isEqualToString:kTwilioVoicePushRegistryNotificationDeviceTokenUpdated]) {
-        NSAssert(eventBody[kTwilioVoicePushRegistryNotificationDeviceTokenKey] != nil, @"Missing device token. Please check the body of NSNotification.userInfo,");
-        self.deviceTokenData = eventBody[kTwilioVoicePushRegistryNotificationDeviceTokenKey];
+    NSString *type = eventBody[kTwilioVoiceReactNativeVoiceEventType];
+    if ([type isEqualToString:kTwilioVoicePushRegistryNotificationDeviceTokenUpdated]) {
+        self.deviceTokenData = eventBody[kTwilioVoicePushRegistryNotificationDeviceToken];
 
         // Skip the event emitting since 1, the listener has not registered and 2, the app does not need to know about this
         return;
-    } else if ([eventBody[kTwilioVoiceReactNativeVoiceEventType] isEqualToString:kTwilioVoiceReactNativeVoiceEventCallInvite]) {
-        TVOCallInvite *callInvite = eventBody[kTwilioVoicePushRegistryNotificationCallInviteKey];
-        NSAssert(callInvite != nil, @"Invalid call invite");
-        [self reportNewIncomingCall:callInvite];
-
-        eventBody[kTwilioVoiceReactNativeEventKeyCallInvite] = [self callInviteInfo:callInvite];
-    } else if ([eventBody[kTwilioVoiceReactNativeVoiceEventType] isEqualToString:kTwilioVoiceReactNativeVoiceEventCallInviteCancelled]) {
-        TVOCancelledCallInvite *cancelledCallInvite = eventBody[kTwilioVoicePushRegistryNotificationCancelledCallInviteKey];
-        NSAssert(cancelledCallInvite != nil, @"Invalid cancelled call invite");
-
-        NSString *uuid;
-        for (NSString *uuidKey in [self.callInviteMap allKeys]) {
-            TVOCallInvite *callInvite = self.callInviteMap[uuidKey];
-            if ([callInvite.callSid isEqualToString:cancelledCallInvite.callSid]) {
-                uuid = uuidKey;
-                break;
-            }
-        }
-        NSAssert(uuid, @"No matching call invite");
-        self.cancelledCallInviteMap[uuid] = cancelledCallInvite;
-        [self endCallWithUuid:[[NSUUID alloc] initWithUUIDString:uuid]];
-
-        eventBody[kTwilioVoiceReactNativeEventKeyCancelledCallInvite] = [self cancelledCallInviteInfo:cancelledCallInvite];
+    } else if ([type isEqualToString:kTwilioVoicePushRegistryNotificationIncomingPushReceived]) {
+        NSDictionary *payload = eventBody[kTwilioVoicePushRegistryNotificationIncomingPushPayload];
+        [TwilioVoiceSDK handleNotification:payload delegate:self delegateQueue:nil callMessageDelegate:self];
     }
-
-    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice body:eventBody];
 }
 
 + (TVODefaultAudioDevice *)twilioAudioDevice {
@@ -152,8 +143,6 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 }
 
 - (void)handleRouteChange:(NSNotification *)notification {
-    NSLog(@"AVAudioSessionRouteChangeNotification");
-
     [self availableAudioDevices];
 
     NSMutableArray *nativeAudioDeviceInfos = [NSMutableArray array];
@@ -161,23 +150,29 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
         [nativeAudioDeviceInfos addObject:self.audioDevices[key]];
     }
 
-    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
-                       body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventAudioDevicesUpdated,
-                              kTwilioVoiceReactNativeAudioDeviceKeyAudioDevices: nativeAudioDeviceInfos,
-                              kTwilioVoiceReactNativeAudioDeviceKeySelectedDevice: self.selectedAudioDevice}];
+    NSMutableDictionary *eventBody = [@{
+        kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventAudioDevicesUpdated,
+        kTwilioVoiceReactNativeAudioDeviceKeyAudioDevices: nativeAudioDeviceInfos
+    } mutableCopy];
+
+    if (self.selectedAudioDevice != nil) {
+        eventBody[kTwilioVoiceReactNativeAudioDeviceKeySelectedDevice] = self.selectedAudioDevice;
+    }
+
+    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice body:eventBody];
 }
 
 - (void)initializeAudioDeviceList {
     NSUUID *receiverUuid = [NSUUID UUID];
     NSDictionary *builtInReceiver = @{ kTwilioVoiceReactNativeAudioDeviceKeyUuid: receiverUuid.UUIDString,
-                                       kTwilioVoiceReactNativeAudioDeviceKeyType: kTwilioVoiceAudioDeviceEarpiece,
+                                       kTwilioVoiceReactNativeAudioDeviceKeyType: kTwilioVoiceReactNativeAudioDeviceKeyEarpiece,
                                        kTwilioVoiceReactNativeAudioDeviceKeyName: @"iPhone",
                                        kTwilioVoiceAudioDeviceUid: AVAudioSessionPortBuiltInReceiver};
     self.audioDevices[receiverUuid.UUIDString] = builtInReceiver;
 
     NSUUID *speakerUuid = [NSUUID UUID];
     NSDictionary *builtInSpeaker = @{ kTwilioVoiceReactNativeAudioDeviceKeyUuid: speakerUuid.UUIDString,
-                                      kTwilioVoiceReactNativeAudioDeviceKeyType: kTwilioVoiceAudioDeviceSpeaker,
+                                      kTwilioVoiceReactNativeAudioDeviceKeyType: kTwilioVoiceReactNativeAudioDeviceKeySpeaker,
                                       kTwilioVoiceReactNativeAudioDeviceKeyName: @"Speaker",
                                       kTwilioVoiceAudioDeviceUid: AVAudioSessionPortBuiltInSpeaker};
     self.audioDevices[speakerUuid.UUIDString] = builtInSpeaker;
@@ -225,7 +220,7 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
         if ([port.portType isEqualToString:AVAudioSessionPortBuiltInReceiver]) {
             for (NSString *key in [self.audioDevices allKeys]) {
                 NSDictionary *device = self.audioDevices[key];
-                if ([device[kTwilioVoiceReactNativeAudioDeviceKeyType] isEqualToString:kTwilioVoiceAudioDeviceEarpiece]) {
+                if ([device[kTwilioVoiceReactNativeAudioDeviceKeyType] isEqualToString:kTwilioVoiceReactNativeAudioDeviceKeyEarpiece]) {
                     self.selectedAudioDevice = device;
                     break;
                 }
@@ -233,7 +228,7 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
         } else if ([port.portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
             for (NSString *key in [self.audioDevices allKeys]) {
                 NSDictionary *device = self.audioDevices[key];
-                if ([device[kTwilioVoiceReactNativeAudioDeviceKeyType] isEqualToString:kTwilioVoiceAudioDeviceSpeaker]) {
+                if ([device[kTwilioVoiceReactNativeAudioDeviceKeyType] isEqualToString:kTwilioVoiceReactNativeAudioDeviceKeySpeaker]) {
                     self.selectedAudioDevice = device;
                 }
             }
@@ -266,11 +261,11 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 
 - (NSString *)audioPortTypeMapping:(NSString *)portType {
     if ([portType isEqualToString:AVAudioSessionPortBuiltInReceiver]) {
-        return kTwilioVoiceAudioDeviceEarpiece;
+        return kTwilioVoiceReactNativeAudioDeviceKeyEarpiece;
     } else if ([portType isEqualToString:AVAudioSessionPortBuiltInSpeaker]) {
-        return kTwilioVoiceAudioDeviceSpeaker;
+        return kTwilioVoiceReactNativeAudioDeviceKeySpeaker;
     } else if ([portType isEqualToString:AVAudioSessionPortBluetoothHFP]) {
-        return kTwilioVoiceAudioDeviceBluetooth;
+        return kTwilioVoiceReactNativeAudioDeviceKeyBluetooth;
     }
 
     return portType;
@@ -289,7 +284,7 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
     NSLog(@"Selecting %@(%@), %@", device[kTwilioVoiceReactNativeAudioDeviceKeyName], device[kTwilioVoiceReactNativeAudioDeviceKeyType], device[kTwilioVoiceAudioDeviceUid]);
 
     AVAudioSessionPortDescription *portDescription = nil;
-    if ([portType isEqualToString:kTwilioVoiceAudioDeviceEarpiece]) {
+    if ([portType isEqualToString:kTwilioVoiceReactNativeAudioDeviceKeyEarpiece]) {
         NSArray *availableInputs = [[AVAudioSession sharedInstance] availableInputs];
         for (AVAudioSessionPortDescription *port in availableInputs) {
             if ([port.portType isEqualToString:AVAudioSessionPortBuiltInMic]) {
@@ -302,7 +297,7 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
             NSLog(@"Built-in mic not found");
             return NO;
         }
-    } else if ([portType isEqualToString:kTwilioVoiceAudioDeviceBluetooth]) {
+    } else if ([portType isEqualToString:kTwilioVoiceReactNativeAudioDeviceKeyBluetooth]) {
         NSArray *availableInputs = [[AVAudioSession sharedInstance] availableInputs];
         for (AVAudioSessionPortDescription *port in availableInputs) {
             if ([port.UID isEqualToString:portUid]) {
@@ -325,14 +320,15 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
         return NO;
     }
 
-    // Override output to speaker if speaker is selected, otherwise choose "none"
-    AVAudioSessionPortOverride outputOverride = ([portType isEqualToString:kTwilioVoiceAudioDeviceSpeaker])?
-                                                AVAudioSessionPortOverrideSpeaker : AVAudioSessionPortOverrideNone;
-    NSError *outputError;
-    [[AVAudioSession sharedInstance] overrideOutputAudioPort:outputOverride error:&outputError];
-    if (outputError) {
-        NSLog(@"Failed to override output port: %@", outputError);
-        return NO;
+    // Override output to speaker if speaker is selected
+    if ([portType isEqualToString:kTwilioVoiceReactNativeAudioDeviceKeySpeaker]) {
+        AVAudioSessionPortOverride outputOverride = AVAudioSessionPortOverrideSpeaker;
+        NSError *outputError;
+        [[AVAudioSession sharedInstance] overrideOutputAudioPort:outputOverride error:&outputError];
+        if (outputError) {
+            NSLog(@"Failed to override output port: %@", outputError);
+            return NO;
+        }
     }
 
     return YES;
@@ -340,13 +336,28 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 
 // TODO: Move to separate utility file someday
 - (NSDictionary *)callInfo:(TVOCall *)call {
-    NSMutableDictionary *callInfo = [@{kTwilioVoiceReactNativeCallInfoUuid: call.uuid? call.uuid.UUIDString : @"",
-                                       kTwilioVoiceReactNativeCallInfoFrom: call.from? call.from : @"",
-                                       kTwilioVoiceReactNativeCallInfoIsMuted: @(call.isMuted),
+    NSMutableDictionary *callInfo = [@{kTwilioVoiceReactNativeCallInfoIsMuted: @(call.isMuted),
                                        kTwilioVoiceReactNativeCallInfoIsOnHold: @(call.isOnHold),
                                        kTwilioVoiceReactNativeCallInfoSid: call.sid,
-                                       kTwilioVoiceReactNativeCallInfoTo: call.to? call.to : @""} mutableCopy];
-    
+                                       kTwilioVoiceReactNativeCallInfoState: [self stringOfState:call.state]} mutableCopy];
+
+    if (call.uuid != nil) {
+        callInfo[kTwilioVoiceReactNativeCallInfoUuid] = call.uuid.UUIDString;
+    }
+
+    if (call.from != nil) {
+        callInfo[kTwilioVoiceReactNativeCallInfoFrom] = call.from;
+    }
+
+    if (call.to != nil) {
+        callInfo[kTwilioVoiceReactNativeCallInfoTo] = call.to;
+    }
+
+    NSString *initialConnectedTimestamp = self.callConnectMap[call.uuid.UUIDString];
+    if (initialConnectedTimestamp != nil) {
+        callInfo[kTwilioVoiceReactNativeCallInfoInitialConnectedTimestamp] = initialConnectedTimestamp;
+    }
+
     TVOCallInvite *callInvite = self.callInviteMap[call.uuid.UUIDString];
     if (callInvite && callInvite.customParameters) {
         callInfo[kTwilioVoiceReactNativeCallInviteInfoCustomParameters] = [callInvite.customParameters copy];
@@ -358,9 +369,13 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 - (NSDictionary *)callInviteInfo:(TVOCallInvite *)callInvite {
     NSMutableDictionary *callInviteInfo = [@{kTwilioVoiceReactNativeCallInviteInfoUuid: callInvite.uuid.UUIDString,
                                              kTwilioVoiceReactNativeCallInviteInfoCallSid: callInvite.callSid,
-                                             kTwilioVoiceReactNativeCallInviteInfoFrom: callInvite.from,
                                              kTwilioVoiceReactNativeCallInviteInfoTo: callInvite.to} mutableCopy];
-    if (callInvite.customParameters) {
+
+    if (callInvite.from != nil) {
+        callInviteInfo[kTwilioVoiceReactNativeCallInviteInfoFrom] = callInvite.from;
+    }
+
+    if (callInvite.customParameters != nil) {
         callInviteInfo[kTwilioVoiceReactNativeCallInviteInfoCustomParameters] = [callInvite.customParameters copy];
     }
 
@@ -368,9 +383,20 @@ static TVODefaultAudioDevice *sTwilioAudioDevice;
 }
 
 - (NSDictionary *)cancelledCallInviteInfo:(TVOCancelledCallInvite *)cancelledCallInvite {
-    return @{kTwilioVoiceReactNativeCancelledCallInviteInfoCallSid: cancelledCallInvite.callSid,
-             kTwilioVoiceReactNativeCancelledCallInviteInfoFrom: cancelledCallInvite.from,
-             kTwilioVoiceReactNativeCancelledCallInviteInfoTo: cancelledCallInvite.to};
+    NSMutableDictionary *cancelledCallInviteInfo = [@{
+        kTwilioVoiceReactNativeCancelledCallInviteInfoCallSid: cancelledCallInvite.callSid,
+        kTwilioVoiceReactNativeCancelledCallInviteInfoTo: cancelledCallInvite.to
+    } mutableCopy];
+
+    if (cancelledCallInvite.from != nil) {
+        cancelledCallInviteInfo[kTwilioVoiceReactNativeCancelledCallInviteInfoFrom] = cancelledCallInvite.from;
+    }
+
+    if (cancelledCallInvite.customParameters != nil) {
+        cancelledCallInviteInfo[kTwilioVoiceReactNativeCancelledCallInviteInfoCustomParameters] = [cancelledCallInvite.customParameters copy];
+    }
+
+    return cancelledCallInviteInfo;
 }
 
 RCT_EXPORT_MODULE();
@@ -379,7 +405,7 @@ RCT_EXPORT_MODULE();
 
 - (NSArray<NSString *> *)supportedEvents
 {
-    return @[kTwilioVoiceReactNativeScopeVoice, kTwilioVoiceReactNativeScopeCall];
+    return @[kTwilioVoiceReactNativeScopeVoice, kTwilioVoiceReactNativeScopeCall, kTwilioVoiceReactNativeScopeCallInvite, kTwilioVoiceReactNativeScopeCallMessage];
 }
 
 + (BOOL)requiresMainQueueSetup
@@ -428,6 +454,21 @@ RCT_EXPORT_METHOD(voice_getDeviceToken:(RCTPromiseResolveBlock)resolve
     }
 }
 
+RCT_EXPORT_METHOD(voice_initializePushRegistry:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    [self initializePushRegistry];
+    resolve(nil);
+}
+
+RCT_EXPORT_METHOD(voice_setCallKitConfiguration:(NSDictionary *)configuration
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    [self initializeCallKitWithConfiguration:configuration];
+    resolve(nil);
+}
+
 RCT_EXPORT_METHOD(voice_register:(NSString *)accessToken
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
@@ -440,20 +481,59 @@ RCT_EXPORT_METHOD(voice_register:(NSString *)accessToken
     }
 #endif
 
-    [TwilioVoiceSDK registerWithAccessToken:accessToken
-                                deviceToken:self.deviceTokenData
-                                 completion:^(NSError *error) {
-        if (error) {
-            NSString *errorMessage = [NSString stringWithFormat:@"Failed to register: %@", error];
-            NSLog(@"%@", errorMessage);
-            [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
-                               body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventError,
-                                      kTwilioVoiceReactNativeVoiceErrorKeyError: @{kTwilioVoiceReactNativeVoiceErrorKeyCode: @(error.code),
-                                                                                   kTwilioVoiceReactNativeVoiceErrorKeyMessage: [error localizedDescription]}}];
+    if (self.registrationInProgress) {
+        reject(kTwilioVoiceReactNativeVoiceError, @"Registration in progress. Please try again later", nil);
+        return;
+    }
+
+    self.registrationInProgress = YES;
+
+    [self asyncPushRegistryInitialization:kPushRegistryDeviceTokenRetryTimeout
+                               completion:^(NSData *deviceTokenData) {
+        if (deviceTokenData) {
+            [TwilioVoiceSDK registerWithAccessToken:accessToken
+                                        deviceToken:deviceTokenData
+                                         completion:^(NSError *error) {
+                self.registrationInProgress = NO;
+                if (error) {
+                    NSString *errorMessage = [NSString stringWithFormat:@"Failed to register: %@", error];
+                    NSLog(@"%@", errorMessage);
+                    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
+                                       body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventError,
+                                              kTwilioVoiceReactNativeVoiceErrorKeyError: @{kTwilioVoiceReactNativeVoiceErrorKeyCode: @(error.code),
+                                                                                           kTwilioVoiceReactNativeVoiceErrorKeyMessage: [error localizedDescription]}}];
+                    reject(kTwilioVoiceReactNativeVoiceError, errorMessage, nil);
+                } else {
+                    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
+                                       body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventRegistered}];
+                    resolve(nil);
+                }
+            }];
         } else {
-            resolve(nil);
+            self.registrationInProgress = NO;
+            reject(kTwilioVoiceReactNativeVoiceError, @"Failed to initialize PushKit device token", nil);
         }
     }];
+}
+
+- (void)asyncPushRegistryInitialization:(dispatch_time_t)timeout
+                             completion:(void(^)(NSData *deviceTokenData))completion {
+    if (self.deviceTokenData) {
+        completion(self.deviceTokenData);
+        return;
+    }
+
+    if (timeout > 0) {
+        __block dispatch_time_t delay = dispatch_time(DISPATCH_TIME_NOW, (int64_t)(timeout * NSEC_PER_SEC));
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(delay, dispatch_get_main_queue(), ^{
+            dispatch_time_t backoffTimeout = (timeout > kExponentialBackoff)? timeout - kExponentialBackoff : 0;
+            [weakSelf asyncPushRegistryInitialization:backoffTimeout completion:completion];
+        });
+    } else {
+        // Device token could be nil. The voice_register() method will handle the promise.
+        completion(self.deviceTokenData);
+    }
 }
 
 RCT_EXPORT_METHOD(voice_unregister:(NSString *)accessToken
@@ -468,28 +548,48 @@ RCT_EXPORT_METHOD(voice_unregister:(NSString *)accessToken
     }
 #endif
 
-    [TwilioVoiceSDK unregisterWithAccessToken:accessToken
-                                  deviceToken:self.deviceTokenData
-                                   completion:^(NSError *error) {
-        if (error) {
-            NSString *errorMessage = [NSString stringWithFormat:@"Failed to unregister: %@", error];
-            NSLog(@"%@", errorMessage);
-            [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
-                               body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventError,
-                                      kTwilioVoiceReactNativeVoiceErrorKeyError: @{kTwilioVoiceReactNativeVoiceErrorKeyCode: @(error.code),
-                                                                                   kTwilioVoiceReactNativeVoiceErrorKeyMessage: [error localizedDescription]}}];
+    if (self.registrationInProgress) {
+        reject(kTwilioVoiceReactNativeVoiceError, @"Registration in progress. Please try again later", nil);
+        return;
+    }
+
+    self.registrationInProgress = YES;
+
+    [self asyncPushRegistryInitialization:kPushRegistryDeviceTokenRetryTimeout
+                               completion:^(NSData *deviceTokenData) {
+        if (deviceTokenData) {
+            [TwilioVoiceSDK unregisterWithAccessToken:accessToken
+                                          deviceToken:deviceTokenData
+                                           completion:^(NSError *error) {
+                self.registrationInProgress = NO;
+                if (error) {
+                    NSString *errorMessage = [NSString stringWithFormat:@"Failed to unregister: %@", error];
+                    NSLog(@"%@", errorMessage);
+                    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
+                                       body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventError,
+                                              kTwilioVoiceReactNativeVoiceErrorKeyError: @{kTwilioVoiceReactNativeVoiceErrorKeyCode: @(error.code),
+                                                                                           kTwilioVoiceReactNativeVoiceErrorKeyMessage: [error localizedDescription]}}];
+                    reject(kTwilioVoiceReactNativeVoiceError, errorMessage, nil);
+                } else {
+                    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
+                                       body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventUnregistered}];
+                    resolve(nil);
+                }
+            }];
         } else {
-            resolve(nil);
+            self.registrationInProgress = NO;
+            reject(kTwilioVoiceReactNativeVoiceError, @"Failed to initialize PushKit device token", nil);
         }
     }];
 }
 
-RCT_EXPORT_METHOD(voice_connect:(NSString *)accessToken
+RCT_EXPORT_METHOD(voice_connect_ios:(NSString *)accessToken
                   params:(NSDictionary *)params
+                  contactHandle:(NSString *)contactHandle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    [self makeCallWithAccessToken:accessToken params:params];
+    [self makeCallWithAccessToken:accessToken params:params contactHandle:contactHandle];
     self.callPromiseResolver = resolve;
 }
 
@@ -533,7 +633,7 @@ RCT_EXPORT_METHOD(voice_selectAudioDevice:(NSString *)uuid
     if ([self selectAudioDevice:uuid]) {
         resolve(nil);
     } else {
-        reject(@"Voice error", [NSString stringWithFormat:@"Failed to select audio device %@", uuid], nil);
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Failed to select audio device %@", uuid], nil);
     }
 }
 
@@ -541,7 +641,7 @@ RCT_EXPORT_METHOD(voice_showNativeAvRoutePicker:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
     TVRNAVRoutePickerView *routePicker = [[TVRNAVRoutePickerView alloc] initWithFrame:CGRectZero];
-    
+
     UIWindow *window = [UIApplication sharedApplication].windows[0];
     UIViewController *rootViewController = window.rootViewController;
     if (rootViewController) {
@@ -549,13 +649,13 @@ RCT_EXPORT_METHOD(voice_showNativeAvRoutePicker:(RCTPromiseResolveBlock)resolve
         while (topViewController.presentedViewController) {
             topViewController = topViewController.presentedViewController;
         }
-        
+
         dispatch_async(dispatch_get_main_queue(), ^{
             [topViewController.view addSubview:routePicker];
             [routePicker present];
         });
     }
-    
+
     resolve(nil);
 }
 
@@ -569,7 +669,7 @@ RCT_EXPORT_METHOD(call_disconnect:(NSString *)uuid
         [self endCallWithUuid:[[NSUUID alloc] initWithUUIDString:uuid]];
         resolve(nil);
     } else {
-        reject(@"Voice error", [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
     }
 }
 
@@ -624,9 +724,9 @@ RCT_EXPORT_METHOD(call_hold:(NSString *)uuid
     TVOCall *call = self.callMap[uuid];
     if (call) {
         [call setOnHold:onHold];
-        resolve(nil);
+        resolve(@(call.isOnHold));
     } else {
-        reject(@"Voice error", [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
     }
 }
 
@@ -650,9 +750,9 @@ RCT_EXPORT_METHOD(call_mute:(NSString *)uuid
     TVOCall *call = self.callMap[uuid];
     if (call) {
         [call setMuted:muted];
-        resolve(nil);
+        resolve(@(call.isMuted));
     } else {
-        reject(@"Voice error", [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
     }
 }
 
@@ -678,22 +778,22 @@ RCT_EXPORT_METHOD(call_sendDigits:(NSString *)uuid
         [call sendDigits:digits];
         resolve(nil);
     } else {
-        reject(@"Voice error", [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
     }
 }
 
 RCT_EXPORT_METHOD(call_postFeedback:(NSString *)uuid
-                  score:(NSUInteger)score
+                  score:(NSString *)score
                   issue:(NSString *)issue
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
     TVOCall *call = self.callMap[uuid];
     if (call) {
-        [call postFeedback:(TVOCallFeedbackScore)score issue:[self issueFromString:issue]];
+        [call postFeedback:[self scoreFromString:score] issue:[self issueFromString:issue]];
         resolve(nil);
     } else {
-        reject(@"Voice error", [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
     }
 }
 
@@ -709,7 +809,37 @@ RCT_EXPORT_METHOD(call_getStats:(NSString *)uuid
             resolve(statsReportJson);
         }];
     } else {
-        reject(@"Voice error", [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
+    }
+}
+
+RCT_EXPORT_METHOD(call_sendMessage:(NSString *)uuid
+                  content:(NSString *)content
+                  contentType:(NSString *)contentType
+                  messageType:(NSString *)messageType
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    TVOCallInvite *callInvite = self.callInviteMap[uuid];
+    TVOCall *call = self.callMap[uuid];
+    if (call) {
+        TVOCallMessage *callMessage = [TVOCallMessage messageWithContent:content
+                                                             messageType:messageType
+                                                                   block:^(TVOCallMessageBuilder *builder) {
+            builder.contentType = contentType;
+        }];
+        NSString *voiceEventSid = [call sendMessage:callMessage];
+        resolve(voiceEventSid);
+    } else if (callInvite) {
+        TVOCallMessage *callMessage = [TVOCallMessage messageWithContent:content
+                                                             messageType:messageType
+                                                                   block:^(TVOCallMessageBuilder *builder) {
+            builder.contentType = contentType;
+        }];
+        NSString *voiceEventSid = [callInvite sendMessage:callMessage];
+        resolve(voiceEventSid);
+    } else {
+        reject(kTwilioVoiceReactNativeVoiceError, [NSString stringWithFormat:@"Call with %@ not found", uuid], nil);
     }
 }
 
@@ -733,98 +863,111 @@ RCT_EXPORT_METHOD(callInvite_accept:(NSString *)callInviteUuid
             }
 
             if (!found) {
-                reject(@"Voice error", @"No matching call", nil);
+                reject(kTwilioVoiceReactNativeVoiceError, @"No matching call", nil);
             }
         } else {
-            reject(@"Voice error", @"Failed to answer the call invite", nil);
+            reject(kTwilioVoiceReactNativeVoiceError, @"Failed to answer the call invite", nil);
         }
     }];
 }
 
-RCT_EXPORT_METHOD(callInvite_reject:(NSString *)callInviteUuiid
+RCT_EXPORT_METHOD(callInvite_reject:(NSString *)callInviteUuid
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    [self endCallWithUuid:[[NSUUID alloc] initWithUUIDString:callInviteUuiid]];
+    [self endCallWithUuid:[[NSUUID alloc] initWithUUIDString:callInviteUuid]];
     resolve(nil);
 }
 
-RCT_EXPORT_METHOD(callInvite_isValid:(NSString *)callInviteUuiid
+RCT_EXPORT_METHOD(callInvite_isValid:(NSString *)callInviteUuid
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
     resolve(@(YES));
 }
 
-RCT_EXPORT_METHOD(callInvite_getCallSid:(NSString *)callInviteUuiid
+RCT_EXPORT_METHOD(callInvite_getCallSid:(NSString *)callInviteUuid
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if (self.callInviteMap[callInviteUuiid]) {
-        TVOCallInvite *callInvite = self.callInviteMap[callInviteUuiid];
+    if (self.callInviteMap[callInviteUuid]) {
+        TVOCallInvite *callInvite = self.callInviteMap[callInviteUuid];
         resolve(callInvite.callSid);
     } else {
-        reject(@"Voice error", @"No matching call invite", nil);
+        reject(kTwilioVoiceReactNativeVoiceError, @"No matching call invite", nil);
     }
 }
 
-RCT_EXPORT_METHOD(callInvite_getFrom:(NSString *)callInviteUuiid
+RCT_EXPORT_METHOD(callInvite_getFrom:(NSString *)callInviteUuid
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if (self.callInviteMap[callInviteUuiid]) {
-        TVOCallInvite *callInvite = self.callInviteMap[callInviteUuiid];
+    if (self.callInviteMap[callInviteUuid]) {
+        TVOCallInvite *callInvite = self.callInviteMap[callInviteUuid];
         resolve(callInvite.from);
     } else {
-        reject(@"Voice error", @"No matching call invite", nil);
+        reject(kTwilioVoiceReactNativeVoiceError, @"No matching call invite", nil);
     }
 }
 
-RCT_EXPORT_METHOD(callInvite_getTo:(NSString *)callInviteUuiid
+RCT_EXPORT_METHOD(callInvite_getTo:(NSString *)callInviteUuid
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if (self.callInviteMap[callInviteUuiid]) {
-        TVOCallInvite *callInvite = self.callInviteMap[callInviteUuiid];
+    if (self.callInviteMap[callInviteUuid]) {
+        TVOCallInvite *callInvite = self.callInviteMap[callInviteUuid];
         resolve(callInvite.to);
     } else {
-        reject(@"Voice error", @"No matching call invite", nil);
+        reject(kTwilioVoiceReactNativeVoiceError, @"No matching call invite", nil);
     }
 }
 
-RCT_EXPORT_METHOD(cancelledCallInvite_getCallSid:(NSString *)cancelledCallInviteUuiid
+RCT_EXPORT_METHOD(callInvite_updateCallerHandle:(NSString *)callInviteUuid
+                  handle:(NSString *)handle
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if (self.cancelledCallInviteMap[cancelledCallInviteUuiid]) {
-        TVOCancelledCallInvite *cancelledCallInvite = self.cancelledCallInviteMap[cancelledCallInviteUuiid];
+    if (self.callInviteMap[callInviteUuid]) {
+        [self updateCall:callInviteUuid callerHandle:handle];
+        resolve(nil);
+    } else {
+        reject(kTwilioVoiceReactNativeVoiceError, @"No matching call invite", nil);
+    }
+}
+
+RCT_EXPORT_METHOD(cancelledCallInvite_getCallSid:(NSString *)cancelledCallInviteUuid
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    if (self.cancelledCallInviteMap[cancelledCallInviteUuid]) {
+        TVOCancelledCallInvite *cancelledCallInvite = self.cancelledCallInviteMap[cancelledCallInviteUuid];
         resolve(cancelledCallInvite.callSid);
     } else {
-        reject(@"Voice error", @"No matching cancelled call invite", nil);
+        reject(kTwilioVoiceReactNativeVoiceError, @"No matching cancelled call invite", nil);
     }
 }
 
-RCT_EXPORT_METHOD(cancelledCallInvite_getFrom:(NSString *)cancelledCallInviteUuiid
+RCT_EXPORT_METHOD(cancelledCallInvite_getFrom:(NSString *)cancelledCallInviteUuid
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if (self.cancelledCallInviteMap[cancelledCallInviteUuiid]) {
-        TVOCancelledCallInvite *cancelledCallInvite = self.cancelledCallInviteMap[cancelledCallInviteUuiid];
+    if (self.cancelledCallInviteMap[cancelledCallInviteUuid]) {
+        TVOCancelledCallInvite *cancelledCallInvite = self.cancelledCallInviteMap[cancelledCallInviteUuid];
         resolve(cancelledCallInvite.from);
     } else {
-        reject(@"Voice error", @"No matching cancelled call invite", nil);
+        reject(kTwilioVoiceReactNativeVoiceError, @"No matching cancelled call invite", nil);
     }
 }
 
-RCT_EXPORT_METHOD(cancelledCallInvite_getTo:(NSString *)cancelledCallInviteUuiid
+RCT_EXPORT_METHOD(cancelledCallInvite_getTo:(NSString *)cancelledCallInviteUuid
                   resolver:(RCTPromiseResolveBlock)resolve
                   rejecter:(RCTPromiseRejectBlock)reject)
 {
-    if (self.cancelledCallInviteMap[cancelledCallInviteUuiid]) {
-        TVOCancelledCallInvite *cancelledCallInvite = self.cancelledCallInviteMap[cancelledCallInviteUuiid];
+    if (self.cancelledCallInviteMap[cancelledCallInviteUuid]) {
+        TVOCancelledCallInvite *cancelledCallInvite = self.cancelledCallInviteMap[cancelledCallInviteUuid];
         resolve(cancelledCallInvite.to);
     } else {
-        reject(@"Voice error", @"No matching cancelled call invite", nil);
+        reject(kTwilioVoiceReactNativeVoiceError, @"No matching cancelled call invite", nil);
     }
 }
 
@@ -836,39 +979,65 @@ RCT_EXPORT_METHOD(util_generateId:(RCTPromiseResolveBlock)resolve
     resolve([NSUUID UUID].UUIDString);
 }
 
+RCT_EXPORT_METHOD(voice_setIncomingCallContactHandleTemplate:(NSString *)template
+                  resolver:(RCTPromiseResolveBlock)resolve
+                  rejecter:(RCTPromiseRejectBlock)reject)
+{
+    self.incomingCallContactHandleTemplate = template;
+    resolve(NULL);
+}
+
 - (NSString *)stringOfState:(TVOCallState)state {
     switch (state) {
         case TVOCallStateConnecting:
-            return @"connecting";
+            return kTwilioVoiceReactNativeCallStateConnecting;
         case TVOCallStateRinging:
-            return @"ringing";
+            return kTwilioVoiceReactNativeCallStateRinging;
         case TVOCallStateConnected:
-            return @"conencted";
+            return kTwilioVoiceReactNativeCallStateConnected;
         case TVOCallStateReconnecting:
-            return @"reconnecting";
+            return kTwilioVoiceReactNativeCallStateReconnecting;
         case TVOCallStateDisconnected:
-            return @"disconnected";
+            return kTwilioVoiceReactNativeCallStateDisconnected;
         default:
-            return @"connecting";
+            return kTwilioVoiceReactNativeCallStateConnecting;
     }
 }
 
-- (TVOCallFeedbackIssue)issueFromString:(NSString *)issue {
-    if ([issue isEqualToString:@"not-reported"]) {
-        return TVOCallFeedbackIssueNotReported;
-    } else if ([issue isEqualToString:@"dropped-call"]) {
-        return TVOCallFeedbackIssueDroppedCall;
-    } else if ([issue isEqualToString:@"audio-latency"]) {
-        return TVOCallFeedbackIssueAudioLatency;
-    } else if ([issue isEqualToString:@"one-way-audio"]) {
-        return TVOCallFeedbackIssueOneWayAudio;
-    } else if ([issue isEqualToString:@"choppy-audio"]) {
-        return TVOCallFeedbackIssueChoppyAudio;
-    } else if ([issue isEqualToString:@"noisy-call"]) {
-        return TVOCallFeedbackIssueNoisyCall;
-    } else {
-        return TVOCallFeedbackIssueNotReported;
+- (TVOCallFeedbackScore)scoreFromString:(NSString *)score {
+    if ([score isEqualToString:kTwilioVoiceReactNativeCallFeedbackScoreNotReported]) {
+        return TVOCallFeedbackScoreNotReported;
+    } else if ([score isEqualToString:kTwilioVoiceReactNativeCallFeedbackScoreOne]) {
+        return TVOCallFeedbackScoreOnePoint;
+    } else if ([score isEqualToString:kTwilioVoiceReactNativeCallFeedbackScoreTwo]) {
+        return TVOCallFeedbackScoreTwoPoints;
+    } else if ([score isEqualToString:kTwilioVoiceReactNativeCallFeedbackScoreThree]) {
+        return TVOCallFeedbackScoreThreePoints;
+    } else if ([score isEqualToString:kTwilioVoiceReactNativeCallFeedbackScoreFour]) {
+        return TVOCallFeedbackScoreFourPoints;
+    } else if ([score isEqualToString:kTwilioVoiceReactNativeCallFeedbackScoreFive]) {
+        return TVOCallFeedbackScoreFivePoints;
     }
+    return TVOCallFeedbackScoreNotReported;
+}
+
+- (TVOCallFeedbackIssue)issueFromString:(NSString *)issue {
+    if ([issue isEqualToString:kTwilioVoiceReactNativeCallFeedbackIssueNotReported]) {
+        return TVOCallFeedbackIssueNotReported;
+    } else if ([issue isEqualToString:kTwilioVoiceReactNativeCallFeedbackIssueDroppedCall]) {
+        return TVOCallFeedbackIssueDroppedCall;
+    } else if ([issue isEqualToString:kTwilioVoiceReactNativeCallFeedbackIssueAudioLatency]) {
+        return TVOCallFeedbackIssueAudioLatency;
+    } else if ([issue isEqualToString:kTwilioVoiceReactNativeCallFeedbackIssueOneWayAudio]) {
+        return TVOCallFeedbackIssueOneWayAudio;
+    } else if ([issue isEqualToString:kTwilioVoiceReactNativeCallFeedbackIssueChoppyAudio]) {
+        return TVOCallFeedbackIssueChoppyAudio;
+    } else if ([issue isEqualToString:kTwilioVoiceReactNativeCallFeedbackIssueNoisyCall]) {
+        return TVOCallFeedbackIssueNoisyCall;
+    } else if ([issue isEqualToString:kTwilioVoiceReactNativeCallFeedbackIssueEcho]) {
+        return TVOCallFeedbackIssueEcho;
+    }
+    return TVOCallFeedbackIssueNotReported;
 }
 
 @end

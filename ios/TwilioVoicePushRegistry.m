@@ -14,12 +14,13 @@
 #import "TwilioVoiceReactNativeConstants.h"
 
 NSString * const kTwilioVoicePushRegistryNotification = @"TwilioVoicePushRegistryNotification";
+NSString * const kTwilioVoicePushRegistryEventType = @"type";
 NSString * const kTwilioVoicePushRegistryNotificationDeviceTokenUpdated = @"deviceTokenUpdated";
-NSString * const kTwilioVoicePushRegistryNotificationDeviceTokenKey = @"deviceToken";
-NSString * const kTwilioVoicePushRegistryNotificationCallInviteKey = @"userInfoCallInvite";
-NSString * const kTwilioVoicePushRegistryNotificationCancelledCallInviteKey = @"userInfoCancelledCallInvite";
+NSString * const kTwilioVoicePushRegistryNotificationDeviceToken = @"deviceToken";
+NSString * const kTwilioVoicePushRegistryNotificationIncomingPushReceived = @"incomingPushReceived";
+NSString * const kTwilioVoicePushRegistryNotificationIncomingPushPayload = @"incomingPushPayload";
 
-@interface TwilioVoicePushRegistry () <PKPushRegistryDelegate, TVONotificationDelegate>
+@interface TwilioVoicePushRegistry () <PKPushRegistryDelegate>
 
 @property (nonatomic, strong) PKPushRegistry *voipRegistry;
 @property (nonatomic, copy) NSString *callInviteUuid;
@@ -44,60 +45,28 @@ didUpdatePushCredentials:(PKPushCredentials *)credentials
     if ([type isEqualToString:PKPushTypeVoIP]) {
         [[NSNotificationCenter defaultCenter] postNotificationName:kTwilioVoicePushRegistryNotification
                                                             object:nil
-                                                          userInfo:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoicePushRegistryNotificationDeviceTokenUpdated,
-                                                                     kTwilioVoicePushRegistryNotificationDeviceTokenKey: credentials.token}];
+                                                          userInfo:@{kTwilioVoicePushRegistryEventType: kTwilioVoicePushRegistryNotificationDeviceTokenUpdated,
+                                                                     kTwilioVoicePushRegistryNotificationDeviceToken: credentials.token}];
     }
 }
 
-// iOS 10 and earlier
-- (void)pushRegistry:(PKPushRegistry *)registry
-didReceiveIncomingPushWithPayload:(PKPushPayload *)payload
-             forType:(NSString *)type {
-    if ([type isEqualToString:PKPushTypeVoIP]) {
-        // TODO: notify view-controller to emit event that incoming push received
-    }
-}
-
-// iOS 11 and later
 - (void)pushRegistry:(PKPushRegistry *)registry
 didReceiveIncomingPushWithPayload:(PKPushPayload *)payload
              forType:(PKPushType)type
 withCompletionHandler:(void (^)(void))completion {
     if ([type isEqualToString:PKPushTypeVoIP]) {
-        // TODO: notify view-controller to emit event that incoming push received
-        [TwilioVoiceSDK handleNotification:payload.dictionaryPayload delegate:self delegateQueue:nil];
+        [[NSNotificationCenter defaultCenter] postNotificationName:kTwilioVoicePushRegistryNotification
+                                                            object:nil
+                                                          userInfo:@{kTwilioVoicePushRegistryEventType: kTwilioVoicePushRegistryNotificationIncomingPushReceived,
+                                                                     kTwilioVoicePushRegistryNotificationIncomingPushPayload: payload.dictionaryPayload}];
     }
 
-    if ([[[UIDevice currentDevice] systemVersion] floatValue] < 13.0) {
-        // TODO: save the completion handler for later fulfillment
-    } else {
-        completion();
-    }
+    completion();
 }
 
 - (void)pushRegistry:(PKPushRegistry *)registry
         didInvalidatePushTokenForType:(NSString *)type {
     // TODO: notify view-controller to emit event that the push-registry has been invalidated
-}
-
-#pragma mark - TVONotificationDelegate
-
-- (void)callInviteReceived:(TVOCallInvite *)callInvite {
-    TVOCallInvite *invite = callInvite;
-    [[NSNotificationCenter defaultCenter] postNotificationName:kTwilioVoicePushRegistryNotification
-                                                        object:nil
-                                                      userInfo:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventCallInvite,
-                                                                 kTwilioVoicePushRegistryNotificationCallInviteKey: invite}];
-}
-
-- (void)cancelledCallInviteReceived:(TVOCancelledCallInvite *)cancelledCallInvite error:(NSError *)error {
-    TVOCancelledCallInvite *cancelledInvite = cancelledCallInvite;
-    [[NSNotificationCenter defaultCenter] postNotificationName:kTwilioVoicePushRegistryNotification
-                                                        object:nil
-                                                      userInfo:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventCallInviteCancelled,
-                                                                 kTwilioVoicePushRegistryNotificationCancelledCallInviteKey: cancelledInvite,
-                                                                 kTwilioVoiceReactNativeVoiceErrorKeyError: @{kTwilioVoiceReactNativeVoiceErrorKeyCode: @(error.code),
-                                                                                                              kTwilioVoiceReactNativeVoiceErrorKeyMessage: [error localizedDescription]}}];
 }
 
 @end

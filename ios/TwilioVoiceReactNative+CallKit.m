@@ -11,7 +11,7 @@
 #import "TwilioVoiceReactNative.h"
 #import "TwilioVoiceReactNativeConstants.h"
 
-NSString * const kCustomParametersKeyDisplayName = @"displayName";
+NSString * const kDefaultCallKitConfigurationName = @"Twilio Voice React Native";
 
 @interface TwilioVoiceReactNative (CallKit) <CXProviderDelegate, TVOCallDelegate, AVAudioPlayerDelegate>
 
@@ -22,27 +22,68 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
 #pragma mark - CallKit helper methods
 
 - (void)initializeCallKit {
-    CXProviderConfiguration *configuration = [[CXProviderConfiguration alloc] initWithLocalizedName:@"Twilio Frontline"];
-    configuration.maximumCallGroups = 1;
-    configuration.maximumCallsPerCallGroup = 1;
-    UIImage *callkitIcon = [UIImage imageNamed:@"iconMask80"];
-    configuration.iconTemplateImageData = UIImagePNGRepresentation(callkitIcon);
+    [self initializeCallKitWithConfiguration:nil];
+}
+
+- (void)initializeCallKitWithConfiguration:(NSDictionary *)configuration {
+    CXProviderConfiguration *callKitConfiguration = [CXProviderConfiguration new];
     
-    self.callKitProvider = [[CXProvider alloc] initWithConfiguration:configuration];
+    if (configuration[kTwilioVoiceReactNativeCallKitMaximumCallGroups]) {
+        callKitConfiguration.maximumCallGroups = [configuration[kTwilioVoiceReactNativeCallKitMaximumCallGroups] intValue];
+    } else {
+        callKitConfiguration.maximumCallGroups = 1;
+    }
+
+    if (configuration[kTwilioVoiceReactNativeCallKitMaximumCallsPerCallGroup]) {
+        callKitConfiguration.maximumCallsPerCallGroup = [configuration[kTwilioVoiceReactNativeCallKitMaximumCallsPerCallGroup] intValue];
+    } else {
+        callKitConfiguration.maximumCallsPerCallGroup = 1;
+    }
+
+    float version = [[UIDevice currentDevice].systemVersion floatValue];
+    if (version > 11.0 && configuration[kTwilioVoiceReactNativeCallKitIncludesCallsInRecents]) {
+        callKitConfiguration.includesCallsInRecents = [configuration[kTwilioVoiceReactNativeCallKitIncludesCallsInRecents] boolValue];
+    }
+
+    if (configuration[kTwilioVoiceReactNativeCallKitSupportedHandleTypes]) {
+        NSSet *supportedHandleTypes = [NSSet setWithArray:configuration[kTwilioVoiceReactNativeCallKitSupportedHandleTypes]];
+        callKitConfiguration.supportedHandleTypes = supportedHandleTypes;
+    } else {
+        callKitConfiguration.supportedHandleTypes = [NSSet setWithArray:@[@(CXHandleTypeGeneric), @(CXHandleTypePhoneNumber)]];
+    }
+
+    if (configuration[kTwilioVoiceReactNativeCallKitIconTemplateImageData] && [configuration[kTwilioVoiceReactNativeCallKitIconTemplateImageData] isKindOfClass:[NSString class]]) {
+        UIImage *icon = [UIImage imageNamed:configuration[kTwilioVoiceReactNativeCallKitIconTemplateImageData]];
+        callKitConfiguration.iconTemplateImageData = UIImagePNGRepresentation(icon);
+    }
+
+    if (configuration[kTwilioVoiceReactNativeCallKitRingtoneSound] && [configuration[kTwilioVoiceReactNativeCallKitRingtoneSound] isKindOfClass:[NSString class]]) {
+        callKitConfiguration.ringtoneSound = configuration[kTwilioVoiceReactNativeCallKitRingtoneSound];
+    }
+    
+    self.callKitProvider = [[CXProvider alloc] initWithConfiguration:callKitConfiguration];
     [self.callKitProvider setDelegate:self queue:nil];
     self.callKitCallController = [CXCallController new];
 }
 
+- (NSString *)getDisplayName:(NSString *)template
+            customParameters:(NSDictionary<NSString *, NSString *> *)customParameters {
+    NSString *processedTemplate = template;
+    for (NSString *paramKey in customParameters) {
+        NSString *paramValue = customParameters[paramKey];
+        NSString *wrappedParamKey = [NSString stringWithFormat:@"${%@}", paramKey];
+        processedTemplate = [processedTemplate stringByReplacingOccurrencesOfString:wrappedParamKey withString:paramValue];
+    }
+    return processedTemplate;
+}
+
 - (void)reportNewIncomingCall:(TVOCallInvite *)callInvite {
-    self.callInviteMap[callInvite.uuid.UUIDString] = callInvite;
-    
-    // Frontline specific logic
     NSString *handleName = callInvite.from;
-    NSDictionary *customParams = callInvite.customParameters;
-    if (customParams[kCustomParametersKeyDisplayName]) {
-        NSString *callerDisplayName = customParams[kCustomParametersKeyDisplayName];
-        callerDisplayName = [callerDisplayName stringByReplacingOccurrencesOfString:@"+" withString:@" "];
-        handleName = callerDisplayName;
+    if (handleName == nil) {
+        handleName = @"Unknown Caller";
+    }
+    if (self.incomingCallContactHandleTemplate != NULL && [self.incomingCallContactHandleTemplate length] > 0) {
+        handleName = [self getDisplayName:self.incomingCallContactHandleTemplate customParameters:[callInvite customParameters]];
     }
 
     CXHandle *callHandle = [[CXHandle alloc] initWithType:CXHandleTypeGeneric value:handleName];
@@ -94,13 +135,16 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
 }
 
 - (void)makeCallWithAccessToken:(NSString *)accessToken
-                         params:(NSDictionary *)params {
+                         params:(NSDictionary *)params
+                  contactHandle:(NSString *)contactHandle {
     self.accessToken = accessToken;
     self.twimlParams = params;
     
-    /* Replace the handle value of your choice */
-    NSString *handle = @"Twilio Frontline";
-    
+    NSString *handle = @"Default Contact";
+    if ([contactHandle length] > 0) {
+        handle = contactHandle;
+    }
+
     CXHandle *callHandle = [[CXHandle alloc] initWithType:CXHandleTypeGeneric value:handle];
     NSUUID *uuid = [NSUUID UUID];
     CXStartCallAction *startCallAction = [[CXStartCallAction alloc] initWithCallUUID:uuid handle:callHandle];
@@ -113,6 +157,7 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
             NSLog(@"StartCallAction transaction request successful");
 
             CXCallUpdate *callUpdate = [[CXCallUpdate alloc] init];
+
             callUpdate.remoteHandle = callHandle;
             callUpdate.supportsDTMF = YES;
             callUpdate.supportsHolding = YES;
@@ -131,6 +176,7 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
     TVOConnectOptions *connectOptions = [TVOConnectOptions optionsWithAccessToken:self.accessToken block:^(TVOConnectOptionsBuilder *builder) {
         builder.params = self.twimlParams;
         builder.uuid = uuid;
+        builder.callMessageDelegate = self;
     }];
     TVOCall *call = [TwilioVoiceSDK connectWithOptions:connectOptions delegate:self];
     if (call) {
@@ -147,6 +193,7 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
     TVOCallInvite *callInvite = self.callInviteMap[uuid.UUIDString];
     TVOAcceptOptions *acceptOptions = [TVOAcceptOptions optionsWithCallInvite:callInvite block:^(TVOAcceptOptionsBuilder *builder) {
         builder.uuid = uuid;
+        builder.callMessageDelegate = self;
     }];
 
     TVOCall *call = [callInvite acceptWithOptions:acceptOptions delegate:self];
@@ -157,9 +204,27 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
         self.callMap[call.uuid.UUIDString] = call;
     }
 
-    [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
-                       body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventCallInviteAccepted,
-                              kTwilioVoiceReactNativeEventKeyCallInvite: [self callInviteInfo:callInvite]}];
+    [self sendEventWithName:kTwilioVoiceReactNativeScopeCallInvite
+                       body:@{
+                         kTwilioVoiceReactNativeCallInviteEventKeyType: kTwilioVoiceReactNativeCallInviteEventTypeValueAccepted,
+                         kTwilioVoiceReactNativeCallInviteEventKeyCallSid: callInvite.callSid,
+                         kTwilioVoiceReactNativeEventKeyCallInvite: [self callInviteInfo:callInvite]}];
+}
+
+- (void)updateCall:(NSString *)uuid callerHandle:(NSString *)handle {
+    CXHandle *callHandle = [[CXHandle alloc] initWithType:CXHandleTypeGeneric value:handle];
+    CXCallUpdate *callUpdate = [[CXCallUpdate alloc] init];
+    callUpdate.remoteHandle = callHandle;
+    callUpdate.localizedCallerName = handle;
+    callUpdate.supportsDTMF = YES;
+    callUpdate.supportsHolding = YES;
+    callUpdate.supportsGrouping = NO;
+    callUpdate.supportsUngrouping = NO;
+    callUpdate.hasVideo = NO;
+
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self.callKitProvider reportCallWithUUID:[[NSUUID alloc] initWithUUIDString:uuid] updated:callUpdate];
+    });
 }
 
 #pragma mark - CXProviderDelegate
@@ -187,9 +252,11 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
     } else if (self.callInviteMap[action.callUUID.UUIDString]) {
         TVOCallInvite *callInvite = self.callInviteMap[action.callUUID.UUIDString];
         [callInvite reject];
-        [self sendEventWithName:kTwilioVoiceReactNativeScopeVoice
-                           body:@{kTwilioVoiceReactNativeVoiceEventType: kTwilioVoiceReactNativeVoiceEventCallInviteRejected,
-                                  kTwilioVoiceReactNativeEventKeyCallInvite: [self callInviteInfo:callInvite]}];
+        [self sendEventWithName:kTwilioVoiceReactNativeScopeCallInvite
+                           body:@{
+                             kTwilioVoiceReactNativeCallInviteEventKeyType: kTwilioVoiceReactNativeCallInviteEventTypeValueRejected,
+                             kTwilioVoiceReactNativeCallInviteEventKeyCallSid: callInvite.callSid,
+                             kTwilioVoiceReactNativeEventKeyCallInvite: [self callInviteInfo:callInvite]}];
         [self.callInviteMap removeObjectForKey:action.callUUID.UUIDString];
     }
     
@@ -272,6 +339,8 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
 }
 
 - (void)callDidConnect:(TVOCall *)call {
+    self.callConnectMap[call.uuid.UUIDString] = [self getSimplifiedISO8601FormattedTimestamp:[NSDate date]];
+
     [self stopRingback];
 
     [self sendEventWithName:kTwilioVoiceReactNativeScopeCall
@@ -331,6 +400,7 @@ NSString * const kCustomParametersKeyDisplayName = @"displayName";
         TVOCall *activeCall = self.callMap[uuidKey];
         if (activeCall == call) {
             [self.callMap removeObjectForKey:uuidKey];
+            [self.callConnectMap removeObjectForKey:call.uuid.UUIDString];
             break;
         }
     }
@@ -445,5 +515,13 @@ previousWarnings:(NSSet<NSNumber *> *)previousWarnings {
     }
 }
 
-@end
+- (NSString *)getSimplifiedISO8601FormattedTimestamp:(NSDate *)date {
+    NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+    NSLocale *locale = [NSLocale currentLocale];
+    [formatter setLocale:locale];
+    [formatter setDateFormat:@"yyyy'-'MM'-'dd'T'HH':'mm':'ss'.'SSSZ"];
 
+    return [formatter stringFromDate:date];
+}
+
+@end

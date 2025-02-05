@@ -1,13 +1,12 @@
 import { createNativeAudioDevicesInfo } from '../__mocks__/AudioDevice';
 import { createNativeCallInviteInfo } from '../__mocks__/CallInvite';
-import { createNativeCancelledCallInviteInfo } from '../__mocks__/CancelledCallInvite';
 import type { NativeEventEmitter as MockNativeEventEmitterType } from '../__mocks__/common';
-import { createNativeErrorInfo } from '../__mocks__/Error';
 import { mockVoiceNativeEvents } from '../__mocks__/Voice';
 import type { AudioDevice } from '../AudioDevice';
 import type { CallInvite } from '../CallInvite';
-import { NativeEventEmitter, NativeModule } from '../common';
+import { NativeEventEmitter, NativeModule, Platform } from '../common';
 import { Constants } from '../constants';
+import { UnsupportedPlatformError } from '../error';
 import type { NativeVoiceEventType } from '../type/Voice';
 import { Voice } from '../Voice';
 
@@ -17,8 +16,8 @@ const MockNativeModule = jest.mocked(NativeModule);
 let MockAudioDevice: jest.Mock;
 let MockCall: jest.Mock;
 let MockCallInvite: jest.Mock & { State: typeof CallInvite.State };
-let MockCancelledCallInvite: jest.Mock;
-let MockGenericError: jest.Mock;
+let MockTwilioError: jest.Mock;
+let mockConstructTwilioError: jest.Mock;
 
 jest.mock('../common');
 jest.mock('../AudioDevice', () => ({
@@ -33,15 +32,19 @@ jest.mock('../CallInvite', () => ({
       Pending: 'pending' as CallInvite.State.Pending,
       Accepted: 'accepted' as CallInvite.State.Accepted,
       Rejected: 'rejected' as CallInvite.State.Rejected,
+      Cancelled: 'cancelled' as CallInvite.State.Cancelled,
     },
   })),
 }));
-jest.mock('../CancelledCallInvite', () => ({
-  CancelledCallInvite: (MockCancelledCallInvite = jest.fn()),
-}));
-jest.mock('../error/GenericError', () => ({
-  GenericError: (MockGenericError = jest.fn()),
-}));
+jest.mock('../error/utility', () => {
+  MockTwilioError = jest.fn();
+  mockConstructTwilioError = jest.fn((mesage, code) => {
+    return new MockTwilioError(mesage, code);
+  });
+  return {
+    constructTwilioError: mockConstructTwilioError,
+  };
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
@@ -63,10 +66,7 @@ describe('Voice class', () => {
         const nativeEventHandler = voice['_nativeEventHandler'];
         [
           Constants.VoiceEventAudioDevicesUpdated,
-          Constants.VoiceEventCallInvite,
-          Constants.VoiceEventCallInviteAccepted,
-          Constants.VoiceEventCallInviteCancelled,
-          Constants.VoiceEventCallInviteRejected,
+          Constants.VoiceEventTypeValueIncomingCallInvite,
           Constants.VoiceEventError,
           Constants.VoiceEventRegistered,
           Constants.VoiceEventUnregistered,
@@ -147,9 +147,34 @@ describe('Voice class', () => {
         });
         expect(selectedDevice).toBeInstanceOf(MockAudioDevice);
       });
+
+      [undefined, null].forEach((nativeSelectedDevice) => {
+        it(`emits undefined when the native selected audio device info is ${
+          nativeSelectedDevice === null ? 'null' : 'undefined'
+        }`, () => {
+          const voice = new Voice();
+          const listenerMock = jest.fn();
+          voice.on(Voice.Event.AudioDevicesUpdated, listenerMock);
+
+          const nativeEvent = {
+            ...mockVoiceNativeEvents.audioDevicesUpdated.nativeEvent,
+            selectedDevice: nativeSelectedDevice,
+          };
+          MockNativeEventEmitter.emit(Constants.ScopeVoice, nativeEvent);
+
+          expect(listenerMock).toHaveBeenCalledTimes(1);
+          expect(listenerMock.mock.calls[0]).toHaveLength(2);
+          const [audioDevices, selectedDevice]: [AudioDevice[], AudioDevice] =
+            listenerMock.mock.calls[0];
+          audioDevices.forEach((audioDevice) => {
+            expect(audioDevice).toBeInstanceOf(MockAudioDevice);
+          });
+          expect(selectedDevice).toBeUndefined();
+        });
+      });
     });
 
-    describe(Constants.VoiceEventCallInvite, () => {
+    describe(Constants.VoiceEventTypeValueIncomingCallInvite, () => {
       it('constructs a pending CallInvite', () => {
         new Voice(); // eslint-disable-line no-new
 
@@ -181,134 +206,37 @@ describe('Voice class', () => {
       });
     });
 
-    describe(Constants.VoiceEventCallInviteAccepted, () => {
-      it('constructs an accepted Callinvite and a Call', () => {
-        new Voice(); // eslint-disable-line no-new
-
-        MockNativeEventEmitter.emit(
-          Constants.ScopeVoice,
-          mockVoiceNativeEvents.callInviteAccepted.nativeEvent
-        );
-
-        const callInviteInfo = createNativeCallInviteInfo();
-        const callInfo = {
-          uuid: callInviteInfo.uuid,
-          customParameters: callInviteInfo.customParameters,
-          sid: callInviteInfo.callSid,
-          from: callInviteInfo.from,
-          to: callInviteInfo.to,
-        };
-
-        expect(MockCallInvite.mock.instances).toHaveLength(1);
-        expect(MockCallInvite.mock.calls).toEqual([
-          [callInviteInfo, MockCallInvite.State.Accepted],
-        ]);
-
-        expect(MockCall.mock.instances).toHaveLength(1);
-        expect(MockCall.mock.calls).toEqual([[callInfo]]);
-      });
-
-      it('emits a Callinvite and a Call', () => {
-        const voice = new Voice();
-        const listenerMock = jest.fn();
-        voice.on(Voice.Event.CallInviteAccepted, listenerMock);
-
-        MockNativeEventEmitter.emit(
-          Constants.ScopeVoice,
-          mockVoiceNativeEvents.callInviteAccepted.nativeEvent
-        );
-
-        expect(listenerMock).toHaveBeenCalledTimes(1);
-        expect(listenerMock.mock.calls[0]).toHaveLength(2);
-        const [callInvite, call] = listenerMock.mock.calls[0];
-        expect(callInvite).toBeInstanceOf(MockCallInvite);
-        expect(call).toBeInstanceOf(MockCall);
-      });
-    });
-
-    describe(Constants.VoiceEventCallInviteCancelled, () => {
-      it('constructs a CancelledCallInvite and an error', () => {
-        new Voice(); // eslint-disable-line no-new
-
-        MockNativeEventEmitter.emit(
-          Constants.ScopeVoice,
-          mockVoiceNativeEvents.cancelledCallInvite.nativeEvent
-        );
-
-        expect(MockCancelledCallInvite.mock.instances).toHaveLength(1);
-        expect(MockCancelledCallInvite.mock.calls).toEqual([
-          [createNativeCancelledCallInviteInfo()],
-        ]);
-
-        expect(MockGenericError.mock.instances).toHaveLength(1);
-        expect(MockGenericError.mock.calls).toEqual([
-          [createNativeErrorInfo().message, createNativeErrorInfo().code],
-        ]);
-      });
-
-      it('emits a CancelledCallInvite and an error', () => {
-        const voice = new Voice();
-        const listenerMock = jest.fn();
-        voice.on(Voice.Event.CancelledCallInvite, listenerMock);
-
-        MockNativeEventEmitter.emit(
-          Constants.ScopeVoice,
-          mockVoiceNativeEvents.cancelledCallInvite.nativeEvent
-        );
-
-        expect(listenerMock).toHaveBeenCalledTimes(1);
-        expect(listenerMock.mock.calls[0]).toHaveLength(2);
-        const [cancelledCallInvite, error] = listenerMock.mock.calls[0];
-        expect(cancelledCallInvite).toBeInstanceOf(MockCancelledCallInvite);
-        expect(error).toBeInstanceOf(MockGenericError);
-      });
-    });
-
-    describe(Constants.VoiceEventCallInviteRejected, () => {
-      it('constructs a rejected CallInvite', () => {
-        new Voice(); // eslint-disable-line no-new
-
-        MockNativeEventEmitter.emit(
-          Constants.ScopeVoice,
-          mockVoiceNativeEvents.callInviteRejected.nativeEvent
-        );
-
-        expect(MockCallInvite.mock.instances).toHaveLength(1);
-        expect(MockCallInvite.mock.calls).toEqual([
-          [createNativeCallInviteInfo(), MockCallInvite.State.Rejected],
-        ]);
-      });
-
-      it('emits a CallInvite', () => {
-        const voice = new Voice();
-        const listenerMock = jest.fn();
-        voice.on(Voice.Event.CallInviteRejected, listenerMock);
-
-        MockNativeEventEmitter.emit(
-          Constants.ScopeVoice,
-          mockVoiceNativeEvents.callInviteRejected.nativeEvent
-        );
-
-        expect(listenerMock).toHaveBeenCalledTimes(1);
-        expect(listenerMock.mock.calls[0]).toHaveLength(1);
-        const [callInvite] = listenerMock.mock.calls[0];
-        expect(callInvite).toBeInstanceOf(MockCallInvite);
-      });
-    });
-
     describe(Constants.VoiceEventError, () => {
-      it('constructs an error', () => {
-        new Voice(); // eslint-disable-line no-new
+      it('emits an error', async () => {
+        const voice = new Voice();
+
+        const errorPromise = new Promise((resolve) => {
+          voice.on(Voice.Event.Error, resolve);
+        });
 
         MockNativeEventEmitter.emit(
           Constants.ScopeVoice,
           mockVoiceNativeEvents.error.nativeEvent
         );
 
-        expect(MockGenericError.mock.instances).toHaveLength(1);
-        expect(MockGenericError.mock.calls).toEqual([
-          [createNativeErrorInfo().message, createNativeErrorInfo().code],
-        ]);
+        const error = await errorPromise;
+
+        expect(typeof error).toBe('object');
+      });
+
+      it('constructs an error', () => {
+        new Voice(); // eslint-disable-line no-new
+
+        const errorEvent = {
+          type: Constants.VoiceEventError,
+          error: { code: 99999, message: 'foobar' },
+        };
+        MockNativeEventEmitter.emit(Constants.ScopeVoice, errorEvent);
+
+        expect(MockTwilioError.mock.calls).toEqual([['foobar', 99999]]);
+        expect(MockTwilioError.mock.calls).toHaveLength(
+          MockTwilioError.mock.instances.length
+        );
       });
     });
 
@@ -355,35 +283,285 @@ describe('Voice class', () => {
 
   describe('public methods', () => {
     describe('.connect', () => {
-      it.each([
-        [
-          'mock-voice-token-foo',
-          { foo: 'bar' },
-          ['mock-voice-token-foo', { foo: 'bar' }],
-        ],
-        ['mock-voice-token-bar', undefined, ['mock-voice-token-bar', {}]],
-      ])(
-        'invokes the native module with params ("%s", %o)',
-        (token, params, expectation) => {
-          new Voice().connect(token, params);
-          expect(MockNativeModule.voice_connect.mock.calls).toEqual([
-            expectation,
-          ]);
+      let token: string;
+      let options: { params?: Record<string, string>; contactHandle?: string };
+
+      beforeEach(() => {
+        token = 'mock-voice-token-foo';
+        options = {
+          params: {
+            'mock-param-key-foo': 'mock-param-value-foo',
+            'mock-param-key-bar': 'mock-param-value-bar',
+          },
+          contactHandle: 'mock-contact-handle',
+        };
+      });
+
+      const performPlatformAgnosticTest = (
+        testTitle: string,
+        testFn: () => Promise<void>
+      ) => {
+        (['android', 'ios'] as const).forEach((os) => {
+          describe(`${os} platform`, () => {
+            beforeEach(() => {
+              jest.spyOn(Platform, 'OS', 'get').mockReturnValue(os);
+            });
+            it(testTitle, testFn);
+          });
+        });
+      };
+
+      performPlatformAgnosticTest(
+        'throws when token is not a string',
+        async () => {
+          for (const invalidToken of [undefined, null, {}, 101, false]) {
+            await expect(
+              new Voice().connect(invalidToken as unknown as string, options)
+            ).rejects.toThrowError(
+              'Argument "token" must be of type "string".'
+            );
+          }
         }
       );
 
-      it('returns a Promise<Call>', async () => {
-        const token = 'mock-voice-token';
-        const voice = new Voice();
-        const connectPromise = voice.connect(token);
-        await expect(connectPromise).resolves.toBeInstanceOf(MockCall);
+      performPlatformAgnosticTest(
+        'throws when params is defined and not an object',
+        async () => {
+          for (const invalidParams of ['string', 101, false]) {
+            options.params = invalidParams as unknown as Record<string, string>;
+            await expect(
+              new Voice().connect(token, options)
+            ).rejects.toThrowError(
+              'Optional argument "params" must be undefined or of type ' +
+                '"object".'
+            );
+          }
+        }
+      );
+
+      performPlatformAgnosticTest(
+        'throws when one or more params is not a string',
+        async () => {
+          for (const invalidParamValue of [{}, 101, false, []]) {
+            options.params = {
+              foo: invalidParamValue,
+              bar: 'baz',
+            } as unknown as Record<string, string>;
+            await expect(
+              new Voice().connect(token, options)
+            ).rejects.toThrowError(
+              'Voice.ConnectOptions.params["foo"] must be of type string'
+            );
+          }
+        }
+      );
+
+      performPlatformAgnosticTest(
+        'throws when contactHandle is defined and not a string',
+        async () => {
+          for (const invalidContactHandle of [null, {}, 101, false]) {
+            options.contactHandle = invalidContactHandle as unknown as string;
+            await expect(
+              new Voice().connect(token, options)
+            ).rejects.toThrowError(
+              'Optional argument "contactHandle" must be undefined or of type' +
+                ' "string".'
+            );
+          }
+        }
+      );
+
+      performPlatformAgnosticTest(
+        'succeeds when params is explicitly undefined',
+        async () => {
+          options.params = undefined;
+          await expect(
+            new Voice().connect(token, options)
+          ).resolves.toBeTruthy();
+        }
+      );
+
+      performPlatformAgnosticTest(
+        'succeeds when contactHandle is explicitly undefined',
+        async () => {
+          options.contactHandle = undefined;
+          await expect(
+            new Voice().connect(token, options)
+          ).resolves.toBeTruthy();
+        }
+      );
+
+      performPlatformAgnosticTest(
+        'succeeds when options are not passed',
+        async () => {
+          await expect(new Voice().connect(token)).resolves.toBeTruthy();
+        }
+      );
+
+      performPlatformAgnosticTest('returns a Promise<Call>', async () => {
+        await expect(
+          new Voice().connect(token, options)
+        ).resolves.toBeInstanceOf(MockCall);
+      });
+
+      describe('android platform', () => {
+        beforeEach(() => {
+          jest.spyOn(Platform, 'OS', 'get').mockReturnValue('android');
+        });
+
+        it('invokes the proper native function', async () => {
+          await new Voice().connect(token, options);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_android).mock.calls
+          ).toEqual([[token, options.params]]);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+          ).toEqual([]);
+        });
+
+        it('rejects when the native layer rejects', async () => {
+          const someMockErrorMessage = 'some mock error message';
+          const someMockErrorCode = 31401;
+          const someMockError = {
+            userInfo: {
+              code: someMockErrorCode,
+              message: someMockErrorMessage,
+            },
+          };
+
+          jest
+            .mocked(MockNativeModule.voice_connect_android)
+            .mockRejectedValueOnce(someMockError);
+
+          expect.assertions(1);
+          await new Voice().connect(token).catch((error) => {
+            expect(error).toBeInstanceOf(MockTwilioError);
+          });
+        });
+
+        it('defaults params to "{}" when not passed', async () => {
+          delete options.params;
+          await new Voice().connect(token, options);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_android).mock.calls
+          ).toEqual([[token, {}]]);
+        });
+
+        it('defaults params to "{}" when params is explicitly undefined', async () => {
+          options.params = undefined;
+          await new Voice().connect(token, options);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_android).mock.calls
+          ).toEqual([[token, {}]]);
+        });
+      });
+
+      describe('ios platform', () => {
+        beforeEach(() => {
+          jest.spyOn(Platform, 'OS', 'get').mockReturnValue('ios');
+        });
+
+        it('invokes the proper native function', async () => {
+          await new Voice().connect(token, options);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+          ).toEqual([[token, options.params, options.contactHandle]]);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_android).mock.calls
+          ).toEqual([]);
+        });
+
+        it(
+          'defaults to "Default Contact" if contactHandle is an empty ' +
+            'string',
+          async () => {
+            options.contactHandle = '';
+            await new Voice().connect(token, options);
+            expect(
+              jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+            ).toEqual([[token, options.params, 'Default Contact']]);
+          }
+        );
+
+        it(
+          'defaults to "Default Contact" if contactHandle is ' + 'not defined',
+          async () => {
+            delete options.contactHandle;
+            await new Voice().connect(token, options);
+            expect(
+              jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+            ).toEqual([[token, options.params, 'Default Contact']]);
+          }
+        );
+
+        it(
+          'defaults to "Default Contact" if contactHandle is ' +
+            'explicitly undefined',
+          async () => {
+            options.contactHandle = undefined;
+            await new Voice().connect(token, options);
+            expect(
+              jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+            ).toEqual([[token, options.params, 'Default Contact']]);
+          }
+        );
+
+        it('rejects when the native layer rejects', async () => {
+          const someMockErrorMessage = 'some mock error message';
+          const someMockError = new Error(someMockErrorMessage);
+          jest
+            .mocked(MockNativeModule.voice_connect_ios)
+            .mockRejectedValueOnce(someMockError);
+          await expect(() => new Voice().connect(token)).rejects.toThrow(
+            someMockErrorMessage
+          );
+        });
+
+        it('defaults params to "{}" when not passed', async () => {
+          delete options.params;
+          await new Voice().connect(token, options);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+          ).toEqual([[token, {}, options.contactHandle]]);
+        });
+
+        it('defaults params to "{}" when params is explicitly undefined', async () => {
+          options.params = undefined;
+          await new Voice().connect(token, options);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+          ).toEqual([[token, {}, options.contactHandle]]);
+        });
+      });
+
+      describe('unsupported platforms', () => {
+        const platform = 'some unsupported platform';
+        beforeEach(() => {
+          jest.spyOn(Platform, 'OS', 'get').mockReturnValue(platform as any);
+        });
+
+        it('rejects', async () => {
+          await expect(() =>
+            new Voice().connect(token, options)
+          ).rejects.toThrowError(
+            `Unsupported platform "${platform}". Expected "android" or "ios".`
+          );
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_android).mock.calls
+          ).toEqual([]);
+          expect(
+            jest.mocked(MockNativeModule.voice_connect_ios).mock.calls
+          ).toEqual([]);
+        });
       });
     });
 
     describe('.getVersion', () => {
       it('invokes the native module', () => {
         new Voice().getVersion();
-        expect(MockNativeModule.voice_getVersion.mock.calls).toEqual([[]]);
+        expect(
+          jest.mocked(MockNativeModule.voice_getVersion).mock.calls
+        ).toEqual([[]]);
       });
 
       it('returns a Promise<string>', async () => {
@@ -395,7 +573,9 @@ describe('Voice class', () => {
     describe('.getDeviceToken', () => {
       it('invokes the native module', () => {
         new Voice().getDeviceToken();
-        expect(MockNativeModule.voice_getDeviceToken.mock.calls).toEqual([[]]);
+        expect(
+          jest.mocked(MockNativeModule.voice_getDeviceToken).mock.calls
+        ).toEqual([[]]);
       });
 
       it('returns a Promise<string>', async () => {
@@ -409,7 +589,9 @@ describe('Voice class', () => {
     describe('.getCalls', () => {
       it('invokes the native module', async () => {
         await new Voice().getCalls();
-        expect(MockNativeModule.voice_getCalls.mock.calls).toEqual([[]]);
+        expect(jest.mocked(MockNativeModule.voice_getCalls).mock.calls).toEqual(
+          [[]]
+        );
       });
 
       it('returns a Promise<Map<Uuid, Call>>', async () => {
@@ -426,7 +608,9 @@ describe('Voice class', () => {
     describe('.getCallInvites', () => {
       it('invokes the native module', async () => {
         await new Voice().getCallInvites();
-        expect(MockNativeModule.voice_getCallInvites.mock.calls).toEqual([[]]);
+        expect(
+          jest.mocked(MockNativeModule.voice_getCallInvites).mock.calls
+        ).toEqual([[]]);
       });
 
       it('returns a Promise<Map<Uuid, CallInvite>>', async () => {
@@ -440,12 +624,62 @@ describe('Voice class', () => {
       });
     });
 
+    describe('.handleFirebaseMessage', () => {
+      const performTestForPlatforms = (
+        platforms: ('android' | 'ios')[],
+        testTitle: string,
+        testFn: () => Promise<void>
+      ) => {
+        platforms.forEach((os) => {
+          describe(`${os} platform`, () => {
+            beforeEach(() => {
+              jest.spyOn(Platform, 'OS', 'get').mockReturnValue(os);
+            });
+            it(testTitle, testFn);
+          });
+        });
+      };
+
+      performTestForPlatforms(
+        ['android'],
+        'it invokes the native module',
+        async () => {
+          const remoteMessage = { foo: 'bar' };
+          await new Voice().handleFirebaseMessage(remoteMessage);
+          expect(
+            jest.mocked(MockNativeModule.voice_handleEvent).mock.calls
+          ).toEqual([[remoteMessage]]);
+        }
+      );
+
+      performTestForPlatforms(
+        ['android'],
+        'it returns a Promise<boolean>',
+        async () => {
+          const remoteMessage = { foo: 'bar' };
+          const result = new Voice().handleFirebaseMessage(remoteMessage);
+          await expect(result).resolves.toBe(true);
+        }
+      );
+
+      performTestForPlatforms(
+        ['ios'],
+        'it rejects with an UnsupportedPlatformError',
+        async () => {
+          expect.assertions(1);
+          const remoteMessage = { foo: 'bar' };
+          const result = new Voice().handleFirebaseMessage(remoteMessage);
+          await expect(result).rejects.toBeInstanceOf(UnsupportedPlatformError);
+        }
+      );
+    });
+
     describe('.register', () => {
       it('invokes the native module', async () => {
         await new Voice().register('mock-voice-token');
-        expect(MockNativeModule.voice_register.mock.calls).toEqual([
-          ['mock-voice-token'],
-        ]);
+        expect(jest.mocked(MockNativeModule.voice_register).mock.calls).toEqual(
+          [['mock-voice-token']]
+        );
       });
 
       it('returns a Promise<void>', async () => {
@@ -457,9 +691,9 @@ describe('Voice class', () => {
     describe('.unregister', () => {
       it('invokes the native module', async () => {
         await new Voice().unregister('mock-voice-token');
-        expect(MockNativeModule.voice_unregister.mock.calls).toEqual([
-          ['mock-voice-token'],
-        ]);
+        expect(
+          jest.mocked(MockNativeModule.voice_unregister).mock.calls
+        ).toEqual([['mock-voice-token']]);
       });
 
       it('returns a Promise<void>', async () => {
@@ -471,7 +705,9 @@ describe('Voice class', () => {
     describe('.getAudioDevice', () => {
       it('invokes the native module', async () => {
         await new Voice().getAudioDevices();
-        expect(MockNativeModule.voice_getAudioDevices.mock.calls).toEqual([[]]);
+        expect(
+          jest.mocked(MockNativeModule.voice_getAudioDevices).mock.calls
+        ).toEqual([[]]);
       });
 
       it('returns a Promise resolving with audio devices info', async () => {
@@ -488,13 +724,26 @@ describe('Voice class', () => {
           expect(audioDevice).toBeInstanceOf(MockAudioDevice);
         }
       });
+
+      it('returns undefined when the native selected audio device info is undefined', async () => {
+        jest
+          .mocked(MockNativeModule.voice_getAudioDevices)
+          .mockResolvedValueOnce({
+            ...createNativeAudioDevicesInfo(),
+            selectedDevice: undefined,
+          });
+
+        const { selectedDevice } = await new Voice().getAudioDevices();
+
+        expect(selectedDevice).toBeUndefined();
+      });
     });
 
     describe('.showAvRoutePickerView', () => {
       it('invokes the native module', async () => {
         await new Voice().showAvRoutePickerView();
         expect(
-          MockNativeModule.voice_showNativeAvRoutePicker.mock.calls
+          jest.mocked(MockNativeModule.voice_showNativeAvRoutePicker).mock.calls
         ).toEqual([[]]);
       });
 
@@ -502,6 +751,76 @@ describe('Voice class', () => {
         const showAvRoutePickerViewPromise =
           new Voice().showAvRoutePickerView();
         await expect(showAvRoutePickerViewPromise).resolves.toBeUndefined();
+      });
+    });
+
+    describe('.initializePushRegistry', () => {
+      it('should reject on android', async () => {
+        jest.spyOn(Platform, 'OS', 'get').mockReturnValue('android');
+        await expect(new Voice().initializePushRegistry()).rejects.toThrowError(
+          UnsupportedPlatformError
+        );
+      });
+
+      it('should resolve on ios', async () => {
+        jest.spyOn(Platform, 'OS', 'get').mockReturnValue('ios');
+        await expect(
+          new Voice().initializePushRegistry()
+        ).resolves.toBeUndefined();
+      });
+    });
+
+    describe('.setCallKitConfiguration', () => {
+      const mockConfig = {
+        callKitIconTemplateImageData: 'foo',
+        callKitIncludesCallsInRecents: true,
+        callKitMaximumCallGroups: 1,
+        callKitMaximumCallsPerCallGroup: 2,
+        callKitRingtoneSound: 'bar',
+        callKitSupportedHandleTypes: [3, 4],
+      };
+
+      it('should reject on android', async () => {
+        jest.spyOn(Platform, 'OS', 'get').mockReturnValue('android');
+        await expect(
+          new Voice().setCallKitConfiguration(mockConfig)
+        ).rejects.toThrowError(UnsupportedPlatformError);
+      });
+
+      it('should resolve on ios', async () => {
+        jest.spyOn(Platform, 'OS', 'get').mockReturnValue('ios');
+        await expect(
+          new Voice().setCallKitConfiguration(mockConfig)
+        ).resolves.toBeUndefined();
+      });
+    });
+
+    describe('.setIncomingCallContactHandleTemplate', () => {
+      it('invokes the native module with a string', async () => {
+        const template = 'Foo ${DisplayName}';
+        await new Voice().setIncomingCallContactHandleTemplate(template);
+        expect(
+          jest.mocked(
+            MockNativeModule.voice_setIncomingCallContactHandleTemplate
+          ).mock.calls
+        ).toEqual([[template]]);
+      });
+
+      it('invokes the native module with no parameter', async () => {
+        await new Voice().setIncomingCallContactHandleTemplate();
+        expect(
+          jest.mocked(
+            MockNativeModule.voice_setIncomingCallContactHandleTemplate
+          ).mock.calls
+        ).toEqual([[]]);
+      });
+
+      it('returns a Promise<void>', async () => {
+        const setIncomingCallContactHandleTemplatePromise =
+          new Voice().setIncomingCallContactHandleTemplate('foobar');
+        await expect(
+          setIncomingCallContactHandleTemplatePromise
+        ).resolves.toBeUndefined();
       });
     });
   });
@@ -514,9 +833,6 @@ describe('Voice class', () => {
       '_handleNativeEvent',
       '_handleAudioDevicesUpdated',
       '_handleCallInvite',
-      '_handleCallInviteAccepted',
-      '_handleCallInviteRejected',
-      '_handleCancelledCallInvite',
       '_handleError',
       '_handleRegistered',
       '_handleUnregistered',

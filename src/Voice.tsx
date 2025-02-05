@@ -9,14 +9,17 @@ import { EventEmitter } from 'eventemitter3';
 import { AudioDevice } from './AudioDevice';
 import { Call } from './Call';
 import { CallInvite } from './CallInvite';
-import { CancelledCallInvite } from './CancelledCallInvite';
-import { NativeEventEmitter, NativeModule } from './common';
+import { NativeEventEmitter, NativeModule, Platform } from './common';
 import { Constants } from './constants';
-import { GenericError } from './error/GenericError';
+import { InvalidArgumentError } from './error/InvalidArgumentError';
+import type { TwilioError } from './error/TwilioError';
+import { UnsupportedPlatformError } from './error/UnsupportedPlatformError';
+import { constructTwilioError } from './error/utility';
 import type { NativeAudioDeviceInfo } from './type/AudioDevice';
 import type { NativeCallInfo } from './type/Call';
 import type { NativeCallInviteInfo } from './type/CallInvite';
-import type { Uuid } from './type/common';
+import type { CallKit } from './type/CallKit';
+import type { CustomParameters, Uuid } from './type/common';
 import type { NativeVoiceEvent, NativeVoiceEventType } from './type/Voice';
 
 /**
@@ -40,40 +43,17 @@ export declare interface Voice {
    */
 
   /** @internal */
-  emit(voiceEvent: Voice.Event, listener: (...args: any[]) => void): boolean;
-
-  /** @internal */
   emit(
     voiceEvent: Voice.Event.AudioDevicesUpdated,
     audioDevices: AudioDevice[],
-    selectedDevice: AudioDevice
+    selectedDevice?: AudioDevice
   ): boolean;
 
   /** @internal */
   emit(voiceEvent: Voice.Event.CallInvite, callInvite: CallInvite): boolean;
 
   /** @internal */
-  emit(
-    voiceEvent: Voice.Event.CallInviteAccepted,
-    callInvite: CallInvite,
-    call: Call
-  ): boolean;
-
-  /** @internal */
-  emit(
-    voiceEvent: Voice.Event.CallInviteRejected,
-    callInvite: CallInvite
-  ): boolean;
-
-  /** @internal */
-  emit(
-    voiceEvent: Voice.Event.CancelledCallInvite,
-    cancelledCallInvite: CancelledCallInvite,
-    error?: GenericError
-  ): boolean;
-
-  /** @internal */
-  emit(voiceEvent: Voice.Event.Error, error: GenericError): boolean;
+  emit(voiceEvent: Voice.Event.Error, error: TwilioError): boolean;
 
   /** @internal */
   emit(voiceEvent: Voice.Event.Registered): boolean;
@@ -81,22 +61,14 @@ export declare interface Voice {
   /** @internal */
   emit(voiceEvent: Voice.Event.Unregistered): boolean;
 
+  /** @internal */
+  emit(voiceEvent: Voice.Event, ...args: any[]): boolean;
+
   /**
    * ----------------
    * Listener Typings
    * ----------------
    */
-
-  /**
-   * Generic event listener typings.
-   * @param voiceEvent - The raised event string.
-   * @param listener - A listener function that will be invoked when the event
-   * is raised.
-   * @returns - The call object.
-   */
-  addListener(voiceEvent: Voice.Event, listener: Voice.Listener.Generic): this;
-  /** {@inheritDoc (Voice:interface).(addListener:1)} */
-  on(voiceEvent: Voice.Event, listener: Voice.Listener.Generic): this;
 
   /**
    * Audio devices updated event. Raised when the list of audio devices changes.
@@ -118,7 +90,7 @@ export declare interface Voice {
     audioDevicesUpdatedEvent: Voice.Event.AudioDevicesUpdated,
     listener: Voice.Listener.AudioDevicesUpdated
   ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:2)} */
+  /** {@inheritDoc (Voice:interface).(addListener:1)} */
   on(
     audioDevicesUpdatedEvent: Voice.Event.AudioDevicesUpdated,
     listener: Voice.Listener.AudioDevicesUpdated
@@ -143,96 +115,10 @@ export declare interface Voice {
     callInviteEvent: Voice.Event.CallInvite,
     listener: Voice.Listener.CallInvite
   ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:3)} */
+  /** {@inheritDoc (Voice:interface).(addListener:2)} */
   on(
     callInviteEvent: Voice.Event.CallInvite,
     listener: Voice.Listener.CallInvite
-  ): this;
-
-  /**
-   * Call invite accepted event. Raised when a pending incoming call invite has
-   * been accepted.
-   *
-   * @remarks
-   * This event is raised when call invites are accepted outside of the SDK,
-   * i.e. through the native iOS or Android UI.
-   *
-   * @example
-   * ```typescript
-   * voice.addListener(Voice.Event.CallInviteAccepted, (callInvite: CallInvite, call: Call) => {
-   *   // handle the incoming call invite and the call associated with it
-   * });
-   * ```
-   *
-   * @param callInviteAcceptedEvent - The raised event string.
-   * @param listener - A listener function that will be invoked when the event
-   * is raised.
-   * @returns - The call object.
-   */
-  addListener(
-    callInviteAcceptedEvent: Voice.Event.CallInviteAccepted,
-    listener: Voice.Listener.CallInviteAccepted
-  ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:4)} */
-  on(
-    callInviteAcceptedEvent: Voice.Event.CallInviteAccepted,
-    listener: Voice.Listener.CallInviteAccepted
-  ): this;
-
-  /**
-   * Call invite rejected event. Raised when a pending incoming call invite has
-   * been rejected.
-   *
-   * @remarks
-   * This event is raised when call invites are rejected outside of the SDK,
-   * i.e. through the native iOS or Android UI.
-   *
-   * @example
-   * ```typescript
-   * voice.addListener(Voice.Event.CallInviteRejected, (callInvite: CallInvite) => {
-   *   // handle the rejection of the incoming call invite
-   * });
-   * ```
-   *
-   * @param callInviteRejectedEvent - The raised event string.
-   * @param listener - A listener function that will be invoked when the event
-   * is raised.
-   * @returns - The call object.
-   */
-  addListener(
-    callInviteRejectedEvent: Voice.Event.CallInviteRejected,
-    listener: Voice.Listener.CallInviteRejected
-  ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:5)} */
-  on(
-    callInviteRejectedEvent: Voice.Event.CallInviteRejected,
-    listener: Voice.Listener.CallInviteRejected
-  ): this;
-
-  /**
-   * Cancelled call invite event. Raised when a pending incoming call invite has
-   * been cancelled and is no longer valid.
-   *
-   * @example
-   * ```typescript
-   * voice.addListener(Voice.Event.CancelledCallInvite, (cancelledCallInvite: CancelledCallInvite) => {
-   *   // handle the cancellation of the incoming call invite
-   * });
-   * ```
-   *
-   * @param cancelledCallInviteEvent - The raised event string.
-   * @param listener - A listener function that will be invoked when the event
-   * is raised.
-   * @returns - The call object.
-   */
-  addListener(
-    cancelledCallInviteEvent: Voice.Event.CancelledCallInvite,
-    listener: Voice.Listener.CancelledCallInvite
-  ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:6)} */
-  on(
-    cancelledCallInviteEvent: Voice.Event.CancelledCallInvite,
-    listener: Voice.Listener.CancelledCallInvite
   ): this;
 
   /**
@@ -254,7 +140,7 @@ export declare interface Voice {
     errorEvent: Voice.Event.Error,
     listener: Voice.Listener.Error
   ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:7)} */
+  /** {@inheritDoc (Voice:interface).(addListener:3)} */
   on(errorEvent: Voice.Event.Error, listener: Voice.Listener.Error): this;
 
   /**
@@ -276,7 +162,7 @@ export declare interface Voice {
     registeredEvent: Voice.Event.Registered,
     listener: Voice.Listener.Registered
   ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:8)} */
+  /** {@inheritDoc (Voice:interface).(addListener:4)} */
   on(
     registeredEvent: Voice.Event.Registered,
     listener: Voice.Listener.Registered
@@ -301,11 +187,22 @@ export declare interface Voice {
     unregisteredEvent: Voice.Event.Unregistered,
     listener: Voice.Listener.Unregistered
   ): this;
-  /** {@inheritDoc (Voice:interface).(addListener:9)} */
+  /** {@inheritDoc (Voice:interface).(addListener:5)} */
   on(
     unregisteredEvent: Voice.Event.Unregistered,
     listener: Voice.Listener.Unregistered
   ): this;
+
+  /**
+   * Generic event listener typings.
+   * @param voiceEvent - The raised event string.
+   * @param listener - A listener function that will be invoked when the event
+   * is raised.
+   * @returns - The call object.
+   */
+  addListener(voiceEvent: Voice.Event, listener: Voice.Listener.Generic): this;
+  /** {@inheritDoc (Voice:interface).(addListener:6)} */
+  on(voiceEvent: Voice.Event, listener: Voice.Listener.Generic): this;
 }
 
 /**
@@ -366,11 +263,7 @@ export class Voice extends EventEmitter {
       /**
        * Call Invite
        */
-      [Constants.VoiceEventCallInvite]: this._handleCallInvite,
-      [Constants.VoiceEventCallInviteAccepted]: this._handleCallInviteAccepted,
-      [Constants.VoiceEventCallInviteRejected]: this._handleCallInviteRejected,
-      [Constants.VoiceEventCallInviteCancelled]:
-        this._handleCancelledCallInvite,
+      [Constants.VoiceEventTypeValueIncomingCallInvite]: this._handleCallInvite,
 
       /**
        * Registration
@@ -389,6 +282,53 @@ export class Voice extends EventEmitter {
       Constants.ScopeVoice,
       this._handleNativeEvent
     );
+  }
+
+  /**
+   * Connect for devices on Android platforms.
+   */
+  private async _connect_android(
+    token: string,
+    params: CustomParameters,
+    notificationDisplayName: string | undefined
+  ) {
+    const connectResult = await NativeModule.voice_connect_android(
+      token,
+      params,
+      notificationDisplayName
+    )
+      .then((callInfo) => {
+        return { type: 'ok', callInfo } as const;
+      })
+      .catch((error) => {
+        const code = error.userInfo.code;
+        const message = error.userInfo.message;
+        return { type: 'err', message, code } as const;
+      });
+
+    if (connectResult.type === 'err') {
+      throw constructTwilioError(connectResult.message, connectResult.code);
+    }
+
+    return new Call(connectResult.callInfo);
+  }
+
+  /**
+   * Connect for devices on iOS platforms.
+   */
+  private async _connect_ios(
+    token: string,
+    params: CustomParameters,
+    contactHandle: string
+  ) {
+    const parsedContactHandle =
+      contactHandle === '' ? 'Default Contact' : contactHandle;
+    const callInfo = await NativeModule.voice_connect_ios(
+      token,
+      params,
+      parsedContactHandle
+    );
+    return new Call(callInfo);
   }
 
   /**
@@ -415,7 +355,9 @@ export class Voice extends EventEmitter {
    * @param nativeVoiceEvent - A `Voice` event directly from the native layer.
    */
   private _handleCallInvite = (nativeVoiceEvent: NativeVoiceEvent) => {
-    if (nativeVoiceEvent.type !== Constants.VoiceEventCallInvite) {
+    if (
+      nativeVoiceEvent.type !== Constants.VoiceEventTypeValueIncomingCallInvite
+    ) {
       throw new Error(
         'Incorrect "voice#callInvite" handler called for type ' +
           `"${nativeVoiceEvent.type}".`
@@ -430,90 +372,8 @@ export class Voice extends EventEmitter {
   };
 
   /**
-   * Call invite accepted handler. Creates a {@link (CallInvite:class)} and a
-   * {@link (Call:class)} from the info raised by the native layer and emits it.
-   * @param nativeVoiceEvent - A `Voice` event directly from the native layer.
-   */
-  private _handleCallInviteAccepted = (nativeVoiceEvent: NativeVoiceEvent) => {
-    if (nativeVoiceEvent.type !== Constants.VoiceEventCallInviteAccepted) {
-      throw new Error(
-        'Incorrect "voice#callInviteAccepted" handler called for type ' +
-          `"${nativeVoiceEvent.type}".`
-      );
-    }
-
-    const { callInvite: callInviteInfo } = nativeVoiceEvent;
-
-    const callInvite = new CallInvite(
-      callInviteInfo,
-      CallInvite.State.Accepted
-    );
-
-    const callInfo = {
-      uuid: callInviteInfo.uuid,
-      customParameters: callInviteInfo.customParameters,
-      sid: callInviteInfo.callSid,
-      from: callInviteInfo.from,
-      to: callInviteInfo.to,
-    };
-
-    const call = new Call(callInfo);
-
-    this.emit(Voice.Event.CallInviteAccepted, callInvite, call);
-  };
-
-  /**
-   * Call invite rejected handler. Creates a {@link (CallInvite:class)} from the
-   * info raised by the native layer and emits it.
-   * @param nativeVoiceEvent - A `Voice` event directly from the native layer.
-   */
-  private _handleCallInviteRejected = (nativeVoiceEvent: NativeVoiceEvent) => {
-    if (nativeVoiceEvent.type !== Constants.VoiceEventCallInviteRejected) {
-      throw new Error(
-        'Incorrect "voice#callInviteRejected" handler called for type ' +
-          `"${nativeVoiceEvent.type}".`
-      );
-    }
-
-    const { callInvite: callInviteInfo } = nativeVoiceEvent;
-
-    const callInvite = new CallInvite(
-      callInviteInfo,
-      CallInvite.State.Rejected
-    );
-
-    this.emit(Voice.Event.CallInviteRejected, callInvite);
-  };
-
-  /**
-   * Call invite cancelled handler. Creates a
-   * {@link (CancelledCallInvite:class)} from the info raised by the native
-   * layer and emits it.
-   * @param nativeVoiceEvent - A `Voice` event directly from the native layer.
-   */
-  private _handleCancelledCallInvite = (nativeVoiceEvent: NativeVoiceEvent) => {
-    if (nativeVoiceEvent.type !== Constants.VoiceEventCallInviteCancelled) {
-      throw new Error(
-        'Incorrect "voice#cancelledCallInvite" handler called for type ' +
-          `"${nativeVoiceEvent.type}".`
-      );
-    }
-
-    const { cancelledCallInvite: cancelledCallInviteInfo, error: errorInfo } =
-      nativeVoiceEvent;
-
-    const error = new GenericError(errorInfo.message, errorInfo.code);
-
-    const cancelledCallInvite = new CancelledCallInvite(
-      cancelledCallInviteInfo
-    );
-
-    this.emit(Voice.Event.CancelledCallInvite, cancelledCallInvite, error);
-  };
-
-  /**
-   * Error event handler. Creates a {@link TwilioErrors.GenericError} from the
-   * info raised by the native layer and emits it.
+   * Error event handler. Creates an error from the namespace
+   * {@link TwilioErrors} from the info raised by the native layer and emits it.
    * @param nativeVoiceEvent - A `Voice` event directly from the native layer.
    */
   private _handleError = (nativeVoiceEvent: NativeVoiceEvent) => {
@@ -527,9 +387,7 @@ export class Voice extends EventEmitter {
     const {
       error: { code, message },
     } = nativeVoiceEvent;
-
-    const error = new GenericError(message, code);
-
+    const error = constructTwilioError(message, code);
     this.emit(Voice.Event.Error, error);
   };
 
@@ -586,7 +444,10 @@ export class Voice extends EventEmitter {
         new AudioDevice(audioDeviceInfo)
     );
 
-    const selectedDevice = new AudioDevice(selectedDeviceInfo);
+    const selectedDevice =
+      typeof selectedDeviceInfo !== 'undefined' && selectedDeviceInfo !== null
+        ? new AudioDevice(selectedDeviceInfo)
+        : undefined;
 
     this.emit(Voice.Event.AudioDevicesUpdated, audioDevices, selectedDevice);
   };
@@ -597,24 +458,69 @@ export class Voice extends EventEmitter {
    * @remarks
    * Note that the resolution of the returned `Promise` does not imply any call
    * event occurring, such as answered or rejected.
+   * The `contactHandle` parameter is only required for iOS apps. Currently the
+   * parameter does have any effect on Android apps and can be ignored.
+   * `Default Contact` will appear in the iOS call history if the value is empty
+   * or not provided.
    *
    * @param token - A Twilio Access Token, usually minted by an
    * authentication-gated endpoint using a Twilio helper library.
-   * @param params - Custom parameters to send to the TwiML Application.
+   * @param options - Connect options.
+   *  See {@link (Voice:namespace).ConnectOptions}.
    *
    * @returns
    * A `Promise` that
    *  - Resolves with a call when the call is created.
+   *  - Rejects:
+   *    * When a call is not able to be created on the native layer.
+   *    * With an {@link TwilioErrors.InvalidArgumentError} when invalid
+   *      arguments are passed.
    */
   async connect(
     token: string,
-    params: Record<string, any> = {}
+    {
+      contactHandle = 'Default Contact',
+      notificationDisplayName = undefined,
+      params = {},
+    }: Voice.ConnectOptions = {}
   ): Promise<Call> {
-    const callInfo = await NativeModule.voice_connect(token, params);
+    if (typeof token !== 'string') {
+      throw new InvalidArgumentError(
+        'Argument "token" must be of type "string".'
+      );
+    }
 
-    const call = new Call(callInfo);
+    if (typeof contactHandle !== 'string') {
+      throw new InvalidArgumentError(
+        'Optional argument "contactHandle" must be undefined or of type' +
+          ' "string".'
+      );
+    }
 
-    return call;
+    if (typeof params !== 'object') {
+      throw new InvalidArgumentError(
+        'Optional argument "params" must be undefined or of type "object".'
+      );
+    }
+
+    for (const [key, value] of Object.entries(params)) {
+      if (typeof value !== 'string') {
+        throw new InvalidArgumentError(
+          `Voice.ConnectOptions.params["${key}"] must be of type string`
+        );
+      }
+    }
+
+    switch (Platform.OS) {
+      case 'ios':
+        return this._connect_ios(token, params, contactHandle);
+      case 'android':
+        return this._connect_android(token, params, notificationDisplayName);
+      default:
+        throw new UnsupportedPlatformError(
+          `Unsupported platform "${Platform.OS}". Expected "android" or "ios".`
+        );
+    }
   }
 
   /**
@@ -679,6 +585,38 @@ export class Voice extends EventEmitter {
   }
 
   /**
+   * Handle Firebase messages from an out-of-band Firebase messaging service.
+   *
+   * @remarks
+   *
+   * Note that this method only works on Android platforms, and will only work
+   * when the built-in Firebase messaging service as been opted-out.
+   *
+   * Unsupported platforms:
+   * - iOS
+   *
+   * @returns
+   * A `Promise` that
+   *  - Resolves with a boolean. This boolean is `true` if the Firebase message
+   *    was handled properly, `false` otherwise.
+   *  - Rejects if an error occurred when parsing the Firebase message, or if
+   *    the app is incorrectly configured. This method will also reject if used
+   *    on an unsupported platform.
+   */
+  async handleFirebaseMessage(remoteMessage: Record<string, string>) {
+    switch (Platform.OS) {
+      case 'android':
+        break;
+      default:
+        throw new UnsupportedPlatformError(
+          `Unsupported platform "${Platform.OS}". This method is only supported on Android.`
+        );
+    }
+
+    return await NativeModule.voice_handleEvent(remoteMessage);
+  }
+
+  /**
    * Register this device for incoming calls.
    * @param token - A Twilio Access Token.
    * @returns
@@ -709,7 +647,7 @@ export class Voice extends EventEmitter {
    */
   async getAudioDevices(): Promise<{
     audioDevices: AudioDevice[];
-    selectedDevice: AudioDevice | null;
+    selectedDevice?: AudioDevice;
   }> {
     const {
       audioDevices: audioDeviceInfos,
@@ -721,15 +659,21 @@ export class Voice extends EventEmitter {
         new AudioDevice(audioDeviceInfo)
     );
 
-    const selectedDevice = new AudioDevice(selectedDeviceInfo);
+    const selectedDevice =
+      typeof selectedDeviceInfo !== 'undefined'
+        ? new AudioDevice(selectedDeviceInfo)
+        : undefined;
 
-    return { audioDevices, selectedDevice };
+    return selectedDevice ? { audioDevices, selectedDevice } : { audioDevices };
   }
 
   /**
    * Show the native AV route picker.
    *
    * @remarks
+   * Unsupported platforms:
+   * - Android
+   *
    * This API is specific to iOS and unavailable in Android. If this API is
    * invoked on Android, there will be no operation and the returned `Promise`
    * will immediately resolve with `null`.
@@ -740,6 +684,101 @@ export class Voice extends EventEmitter {
    */
   showAvRoutePickerView(): Promise<void> {
     return NativeModule.voice_showNativeAvRoutePicker();
+  }
+
+  /**
+   * Initialize a Push Registry instance inside the SDK for handling
+   * PushKit device token updates and receiving push notifications.
+   *
+   * @remarks
+   * Unsupported platforms:
+   * - Android
+   *
+   * This API is specific to iOS and unavailable in Android.
+   * Use this method if the application does not have an iOS PushKit
+   * module and wishes to delegate the event handling to the SDK.
+   * Call this method upon launching the app to guarantee that incoming
+   * call push notifications will be surfaced to the users, especially when
+   * the app is not running in the foreground.
+   *
+   * @returns
+   * A `Promise` that
+   *  - Resolves when the initialization is done.
+   */
+  async initializePushRegistry(): Promise<void> {
+    switch (Platform.OS) {
+      case 'ios':
+        return NativeModule.voice_initializePushRegistry();
+      default:
+        throw new UnsupportedPlatformError(
+          `Unsupported platform "${Platform.OS}". This method is only supported on iOS.`
+        );
+    }
+  }
+
+  /**
+   * Custom iOS CallKit configuration.
+   *
+   * @param configuration - iOS CallKit configuration options.
+   *
+   * @remarks
+   * Unsupported platforms:
+   * - Android
+   *
+   * See {@link CallKit} for more information.
+   *
+   * @returns
+   * A `Promise` that
+   *  - Resolves when the configuration has been applied.
+   *  - Rejects if the configuration is unable to be applied.
+   */
+  async setCallKitConfiguration(
+    configuration: CallKit.ConfigurationOptions
+  ): Promise<void> {
+    switch (Platform.OS) {
+      case 'ios':
+        return NativeModule.voice_setCallKitConfiguration(configuration);
+      default:
+        throw new UnsupportedPlatformError(
+          `Unsupported platform "${Platform.OS}". This method is only supported on iOS.`
+        );
+    }
+  }
+
+  /**
+   * Set the native call contact handle template.
+   *
+   * This method is used to customize the displayed contact for Android
+   * notifications and the contact handle displayed in iOS CallKit UIs.
+   *
+   * @example
+   * ```ts
+   * await voice.setIncomingCallContactHandleTemplate('Foo ${DisplayName}');
+   * ```
+   * If an incoming call is made and there is a Twiml Parameter with key
+   * "DisplayName" and value "Bar", then the notification title or CallKit
+   * handle will display as "Foo Bar".
+   *
+   * @example
+   * ```ts
+   * await voice.setIncomingCallContactHandleTemplate();
+   * ```
+   * When invoking this method without any parameters, the template will be
+   * unset and the default notification and contact handle behavior is restored.
+   *
+   * @param template - The string to set the notification and contact handle
+   * template to. Note that this value is optional, if the method is invoked
+   * with an implicit undefined (no parameter) then the template will be unset
+   * and the default notification and contact handle behavior will be restored.
+   * Empty string values will be considered as the same as passing `undefined`.
+   *
+   * @returns
+   * A `Promise` that
+   * - Resolves with `undefined` if the template were set.
+   * - Rejects if the template was unable to be set.
+   */
+  async setIncomingCallContactHandleTemplate(template?: string): Promise<void> {
+    await NativeModule.voice_setIncomingCallContactHandleTemplate(template);
   }
 }
 
@@ -755,59 +794,83 @@ export class Voice extends EventEmitter {
  */
 export namespace Voice {
   /**
+   * Options to pass to the {@link (Voice:class).connect} method.
+   */
+  export type ConnectOptions = {
+    /**
+     * Custom parameters to send to the TwiML Application.
+     */
+    params?: Record<string, string>;
+    /**
+     * A CallKit display name that will show in the call history as the contact
+     * handle.
+     *
+     * @remarks
+     * Unsupported platforms:
+     * - Android
+     */
+    contactHandle?: string;
+    /**
+     * The display name that will show in the Android notifications. Passing an
+     * empty string will be considered the same as if `undefined` were passed.
+     *
+     * @remarks
+     * Unsupported platforms:
+     * - iOS
+     */
+    notificationDisplayName?: string;
+  };
+
+  /**
    * Enumeration of all event strings emitted by {@link (Voice:class)} objects.
    */
   export enum Event {
     /**
      * Raised when there is a change in available audio devices.
-     * See {@link (Voice:interface).(addListener:2)
+     *
+     * @remarks
+     *
+     * See {@link (Voice:interface).(addListener:1)
      * | Voice.addListener(AudioDevicesUpdated)}.
      */
     'AudioDevicesUpdated' = 'audioDevicesUpdated',
+
     /**
      * Raised when there is an incoming call invite.
-     * See {@link (Voice:interface).(addListener:3)
+     *
+     * @remarks
+     *
+     * See {@link (Voice:interface).(addListener:2)
      * | Voice.addListener(CallInvite)}.
      */
     'CallInvite' = 'callInvite',
-    /**
-     * Raised when an incoming call invite has been accepted.
-     * This event can be raised either through the SDK or outside of the SDK
-     * (i.e. through native UI/UX such as push notifications).
-     * See {@link (Voice:interface).(addListener:4)
-     * | Voice.addListener(CallInviteAccepted)}.
-     */
-    'CallInviteAccepted' = 'callInviteAccepted',
-    /**
-     * Raised when an incoming call invite has been rejected.
-     * This event can be raised either through the SDK or outside of the SDK
-     * (i.e. through native UI/UX such as push notifications).
-     * See {@link (Voice:interface).(addListener:5)
-     * | Voice.addListener(CallInviteRejected)}.
-     */
-    'CallInviteRejected' = 'callInviteRejected',
-    /**
-     * Raised when an incoming call invite has been cancelled, thus invalidating
-     * the associated call invite.
-     * See {@link (Voice:interface).(addListener:6)
-     * | Voice.addListener(CancelledCallInvite)}.
-     */
-    'CancelledCallInvite' = 'cancelledCallInvite',
+
     /**
      * Raised when the SDK encounters an error.
-     * See {@link (Voice:interface).(addListener:7)
+     *
+     * @remarks
+     *
+     * See {@link (Voice:interface).(addListener:3)
      * | Voice.addListener(Error)}.
      */
     'Error' = 'error',
+
     /**
      * Raised when the SDK is registered for incoming calls.
-     * See {@link (Voice:interface).(addListener:8)
+     *
+     * @remarks
+     *
+     * See {@link (Voice:interface).(addListener:4)
      * | Voice.addListener(Registered)}.
      */
     'Registered' = 'registered',
+
     /**
      * Raised when the SDK is unregistered for incoming calls.
-     * See {@link (Voice:interface).(addListener:9)
+     *
+     * @remarks
+     *
+     * See {@link (Voice:interface).(addListener:5)
      * | Voice.addListener(Unregistered)}.
      */
     'Unregistered' = 'unregistered',
@@ -819,25 +882,17 @@ export namespace Voice {
    */
   export namespace Listener {
     /**
-     * Generic event listener. This should be the function signature of any
-     * event listener bound to any voice event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:1)}.
-     */
-    export type Generic = (...args: any[]) => void;
-
-    /**
      * Audio devices updated event listener. This should be the function
      * signature of an event listener bound to the
      * {@link (Voice:namespace).Event.AudioDevicesUpdated} event.
      *
      * @remarks
-     * See {@link (Voice:interface).(addListener:2)}.
+     *
+     * See {@link (Voice:interface).(addListener:1)}.
      */
     export type AudioDevicesUpdated = (
       audioDevices: AudioDevice[],
-      selectedDevice: AudioDevice | null
+      selectedDevice?: AudioDevice
     ) => void;
 
     /**
@@ -846,45 +901,10 @@ export namespace Voice {
      * {@link (Voice:namespace).Event.CallInvite} event.
      *
      * @remarks
-     * See {@link (Voice:interface).(addListener:3)}.
+     *
+     * See {@link (Voice:interface).(addListener:2)}.
      */
     export type CallInvite = (callInvite: CallInvite) => void;
-
-    /**
-     * Call invite accepted event listener. This should be the function
-     * signature of an event listener bound to the
-     * {@link (Voice:namespace).Event.CallInviteAccepted} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:4)}.
-     */
-    export type CallInviteAccepted = (
-      callInvite: CallInvite,
-      call: Call
-    ) => void;
-
-    /**
-     * Call invite rejected event listener. This should be the function
-     * signature of an event listener bound to the
-     * {@link (Voice:namespace).Event.CallInviteRejected} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:5)}.
-     */
-    export type CallInviteRejected = (callInvite: CallInvite) => void;
-
-    /**
-     * Call invite cancelled event listener. This should be the function
-     * signature of an event listener bound to the
-     * {@link (Voice:namespace).Event.CancelledCallInvite} event.
-     *
-     * @remarks
-     * See {@link (Voice:interface).(addListener:6)}.
-     */
-    export type CancelledCallInvite = (
-      cancelledCallInvite: CancelledCallInvite,
-      error?: GenericError
-    ) => void;
 
     /**
      * Error event listener. This should be the function signature of an event
@@ -892,9 +912,12 @@ export namespace Voice {
      * {@link (Voice:namespace).Event.Error} event.
      *
      * @remarks
-     * See {@link (Voice:interface).(addListener:7)}.
+     *
+     * See {@link (Voice:interface).(addListener:3)}.
+     *
+     * See {@link TwilioErrors} for all error classes.
      */
-    export type Error = (error: GenericError) => void;
+    export type Error = (error: TwilioError) => void;
 
     /**
      * Registered event listener. This should be the function signature of an
@@ -902,7 +925,8 @@ export namespace Voice {
      * {@link (Voice:namespace).Event.Registered} event.
      *
      * @remarks
-     * See {@link (Voice:interface).(addListener:7)}.
+     *
+     * See {@link (Voice:interface).(addListener:4)}.
      */
     export type Registered = () => void;
 
@@ -912,8 +936,19 @@ export namespace Voice {
      * {@link (Voice:namespace).Event.Unregistered} event.
      *
      * @remarks
-     * See {@link (Voice:interface).(addListener:8)}.
+     *
+     * See {@link (Voice:interface).(addListener:5)}.
      */
     export type Unregistered = () => void;
+
+    /**
+     * Generic event listener. This should be the function signature of any
+     * event listener bound to any voice event.
+     *
+     * @remarks
+     *
+     * See {@link (Voice:interface).(addListener:6)}.
+     */
+    export type Generic = (...args: any[]) => void;
   }
 }

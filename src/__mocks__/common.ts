@@ -22,6 +22,9 @@ export const NativeModule = {
   call_mute: jest.fn((_uuid: Uuid, mute: boolean) => Promise.resolve(mute)),
   call_postFeedback: jest.fn().mockResolvedValue(undefined),
   call_sendDigits: jest.fn().mockResolvedValue(undefined),
+  call_sendMessage: jest
+    .fn()
+    .mockResolvedValue('mock-nativemodule-tracking-id'),
 
   /**
    * Call Invite Mocks
@@ -29,11 +32,13 @@ export const NativeModule = {
   callInvite_accept: jest.fn().mockResolvedValue(createNativeCallInfo()),
   callInvite_isValid: jest.fn().mockResolvedValue(false),
   callInvite_reject: jest.fn().mockResolvedValue(undefined),
+  callInvite_updateCallerHandle: jest.fn().mockResolvedValue(undefined),
 
   /**
    * Voice Mocks
    */
-  voice_connect: jest.fn().mockResolvedValue(createNativeCallInfo()),
+  voice_connect_android: jest.fn().mockResolvedValue(createNativeCallInfo()),
+  voice_connect_ios: jest.fn().mockResolvedValue(createNativeCallInfo()),
   voice_getAudioDevices: jest
     .fn()
     .mockResolvedValue(createNativeAudioDevicesInfo()),
@@ -45,9 +50,15 @@ export const NativeModule = {
     .fn()
     .mockResolvedValue('mock-nativemodule-devicetoken'),
   voice_getVersion: jest.fn().mockResolvedValue('mock-nativemodule-version'),
+  voice_handleEvent: jest.fn().mockResolvedValue(true),
+  voice_initializePushRegistry: jest.fn().mockResolvedValue(undefined),
   voice_register: jest.fn().mockResolvedValue(undefined),
   voice_selectAudioDevice: jest.fn().mockResolvedValue(undefined),
+  voice_setCallKitConfiguration: jest.fn().mockResolvedValue(undefined),
   voice_showNativeAvRoutePicker: jest.fn().mockResolvedValue(undefined),
+  voice_setIncomingCallContactHandleTemplate: jest
+    .fn()
+    .mockResolvedValue(undefined),
   voice_unregister: jest.fn().mockResolvedValue(undefined),
 };
 
@@ -85,3 +96,11 @@ export class MockNativeEventEmitter extends EventEmitter {
 }
 
 export const NativeEventEmitter = new MockNativeEventEmitter();
+
+class MockPlatform {
+  get OS() {
+    return 'uninitialized';
+  }
+}
+
+export const Platform = new MockPlatform();

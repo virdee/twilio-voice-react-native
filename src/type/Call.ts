@@ -1,14 +1,18 @@
 import type { Constants } from '../constants';
 import type { CustomParameters, Uuid } from './common';
 import type { NativeErrorInfo } from './Error';
+import type { Call } from '../Call';
+import type { NativeCallMessageInfo } from './CallMessage';
 
 export interface NativeCallInfo {
   uuid: Uuid;
   customParameters?: CustomParameters;
   from?: string;
+  [Constants.CallInfoInitialConnectedTimestamp]?: string;
   isMuted?: boolean;
   isOnHold?: boolean;
   sid?: string;
+  state?: Call.State;
   to?: string;
 }
 
@@ -50,8 +54,14 @@ export type NativeCallQualityWarnings = string[];
 export interface NativeCallQualityWarningsEvent {
   type: Constants.CallEventQualityWarningsChanged;
   call: NativeCallInfo;
-  currentWarnings: NativeCallQualityWarnings;
-  previousWarnings: NativeCallQualityWarnings;
+  [Constants.CallEventCurrentWarnings]: NativeCallQualityWarnings;
+  [Constants.CallEventPreviousWarnings]: NativeCallQualityWarnings;
+}
+
+export interface NativeCallMessageReceivedEvent {
+  type: Constants.CallEventMessageReceived;
+  call: NativeCallInfo;
+  [Constants.CallMessage]: NativeCallMessageInfo;
 }
 
 export type NativeCallEvent =
@@ -61,7 +71,8 @@ export type NativeCallEvent =
   | NativeCallReconnectedEvent
   | NativeCallDisconnectedEvent
   | NativeCallRingingEvent
-  | NativeCallQualityWarningsEvent;
+  | NativeCallQualityWarningsEvent
+  | NativeCallMessageReceivedEvent;
 
 export type NativeCallEventType =
   | Constants.CallEventConnectFailure
@@ -70,4 +81,22 @@ export type NativeCallEventType =
   | Constants.CallEventQualityWarningsChanged
   | Constants.CallEventReconnected
   | Constants.CallEventReconnecting
-  | Constants.CallEventRinging;
+  | Constants.CallEventRinging
+  | Constants.CallEventMessageReceived;
+
+export type NativeCallFeedbackIssue =
+  | Constants.CallFeedbackIssueAudioLatency
+  | Constants.CallFeedbackIssueChoppyAudio
+  | Constants.CallFeedbackIssueDroppedCall
+  | Constants.CallFeedbackIssueEcho
+  | Constants.CallFeedbackIssueNoisyCall
+  | Constants.CallFeedbackIssueNotReported
+  | Constants.CallFeedbackIssueOneWayAudio;
+
+export type NativeCallFeedbackScore =
+  | Constants.CallFeedbackScoreNotReported
+  | Constants.CallFeedbackScoreOne
+  | Constants.CallFeedbackScoreTwo
+  | Constants.CallFeedbackScoreThree
+  | Constants.CallFeedbackScoreFour
+  | Constants.CallFeedbackScoreFive;

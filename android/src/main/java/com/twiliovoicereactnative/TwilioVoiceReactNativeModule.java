@@ -1,11 +1,6 @@
 package com.twiliovoicereactnative;
 
-import android.content.Intent;
-import android.os.Build;
-import android.util.Log;
-
 import androidx.annotation.NonNull;
-import androidx.annotation.RequiresApi;
 
 import com.facebook.react.bridge.Arguments;
 import com.facebook.react.bridge.Promise;
@@ -18,15 +13,10 @@ import com.facebook.react.bridge.ReadableType;
 import com.facebook.react.bridge.WritableArray;
 import com.facebook.react.bridge.WritableMap;
 import com.facebook.react.module.annotations.ReactModule;
-import com.google.android.gms.tasks.OnCompleteListener;
-import com.google.android.gms.tasks.Task;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.twilio.audioswitch.AudioDevice;
-import com.twilio.audioswitch.AudioSwitch;
-import com.twilio.voice.AcceptOptions;
 import com.twilio.voice.Call;
-import com.twilio.voice.CallInvite;
-import com.twilio.voice.CancelledCallInvite;
+import com.twilio.voice.CallMessage;
 import com.twilio.voice.ConnectOptions;
 import com.twilio.voice.LogLevel;
 import com.twilio.voice.RegistrationException;
@@ -38,178 +28,112 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import static com.twiliovoicereactnative.AndroidEventEmitter.EVENT_KEY_CALL_INVITE_INFO;
 import static com.twiliovoicereactnative.CommonConstants.ReactNativeVoiceSDK;
+import static com.twiliovoicereactnative.CommonConstants.ReactNativeVoiceSDKVer;
 import static com.twiliovoicereactnative.CommonConstants.VoiceEventType;
 import static com.twiliovoicereactnative.CommonConstants.VoiceErrorKeyError;
-import static com.twiliovoicereactnative.CommonConstants.VoiceErrorKeyCode;
-import static com.twiliovoicereactnative.CommonConstants.VoiceErrorKeyMessage;
-import static com.twiliovoicereactnative.CommonConstants.CallInfoUuid;
-import static com.twiliovoicereactnative.CommonConstants.CallInfoSid;
-import static com.twiliovoicereactnative.CommonConstants.CallInfoFrom;
-import static com.twiliovoicereactnative.CommonConstants.CallInfoTo;
-import static com.twiliovoicereactnative.CommonConstants.CallInviteInfoUuid;
-import static com.twiliovoicereactnative.CommonConstants.CallInviteInfoCallSid;
-import static com.twiliovoicereactnative.CommonConstants.CallInviteInfoFrom;
-import static com.twiliovoicereactnative.CommonConstants.CallInviteInfoTo;
-import static com.twiliovoicereactnative.CommonConstants.CallInviteInfoCustomParameters;
-import static com.twiliovoicereactnative.CommonConstants.CancelledCallInviteInfoCallSid;
-import static com.twiliovoicereactnative.CommonConstants.CancelledCallInviteInfoFrom;
-import static com.twiliovoicereactnative.CommonConstants.CancelledCallInviteInfoTo;
-import static com.twiliovoicereactnative.CommonConstants.CancelledCallInviteInfoCustomParameters;
-import static com.twiliovoicereactnative.CommonConstants.AudioDeviceKeyUuid;
-import static com.twiliovoicereactnative.CommonConstants.AudioDeviceKeyName;
-import static com.twiliovoicereactnative.CommonConstants.AudioDeviceKeyType;
-import static com.twiliovoicereactnative.CommonConstants.AudioDeviceKeyAudioDevices;
-import static com.twiliovoicereactnative.CommonConstants.AudioDeviceKeySelectedDevice;
-import static com.twiliovoicereactnative.CommonConstants.Issue;
 import static com.twiliovoicereactnative.CommonConstants.ScopeVoice;
-import static com.twiliovoicereactnative.CommonConstants.Score;
 import static com.twiliovoicereactnative.CommonConstants.VoiceEventAudioDevicesUpdated;
-import static com.twiliovoicereactnative.CommonConstants.VoiceEventCallInviteAccepted;
 import static com.twiliovoicereactnative.CommonConstants.VoiceEventError;
 import static com.twiliovoicereactnative.CommonConstants.VoiceEventRegistered;
 import static com.twiliovoicereactnative.CommonConstants.VoiceEventUnregistered;
+import static com.twiliovoicereactnative.JSEventEmitter.constructJSMap;
+import static com.twiliovoicereactnative.ReactNativeArgumentsSerializer.serializeCall;
+import static com.twiliovoicereactnative.ReactNativeArgumentsSerializer.serializeCallInvite;
+import static com.twiliovoicereactnative.VoiceApplicationProxy.getCallRecordDatabase;
+import static com.twiliovoicereactnative.VoiceApplicationProxy.getJSEventEmitter;
+import static com.twiliovoicereactnative.VoiceApplicationProxy.getVoiceServiceApi;
+import static com.twiliovoicereactnative.ReactNativeArgumentsSerializer.*;
+
+import android.annotation.SuppressLint;
+import android.content.Context;
+import android.util.Pair;
+
+import com.twiliovoicereactnative.CallRecordDatabase.CallRecord;
 
 @ReactModule(name = TwilioVoiceReactNativeModule.TAG)
 public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
-
   static final String TAG = "TwilioVoiceReactNative";
+
+  private static final SDKLog logger = new SDKLog(TwilioVoiceReactNativeModule.class);
+  private static final String GLOBAL_ENV = "com.twilio.voice.env";
+  private static final String SDK_VERSION = "com.twilio.voice.env.sdk.version";
+
+  /**
+   * Map of common constant score strings to the Call.Score enum.
+   */
+  private static final Map<String, Call.Score> scoreMap = Map.of(
+    CommonConstants.CallFeedbackScoreNotReported, Call.Score.NOT_REPORTED,
+    CommonConstants.CallFeedbackScoreOne, Call.Score.ONE,
+    CommonConstants.CallFeedbackScoreTwo, Call.Score.TWO,
+    CommonConstants.CallFeedbackScoreThree, Call.Score.THREE,
+    CommonConstants.CallFeedbackScoreFour, Call.Score.FOUR,
+    CommonConstants.CallFeedbackScoreFive, Call.Score.FIVE
+  );
+
+  /**
+   * Map of common constant issue strings to the Call.Issue enum.
+   */
+  private static final Map<String, Call.Issue> issueMap = Map.of(
+    CommonConstants.CallFeedbackIssueAudioLatency, Call.Issue.AUDIO_LATENCY,
+    CommonConstants.CallFeedbackIssueChoppyAudio, Call.Issue.CHOPPY_AUDIO,
+    CommonConstants.CallFeedbackIssueEcho, Call.Issue.ECHO,
+    CommonConstants.CallFeedbackIssueDroppedCall, Call.Issue.DROPPED_CALL,
+    CommonConstants.CallFeedbackIssueNoisyCall, Call.Issue.NOISY_CALL,
+    CommonConstants.CallFeedbackIssueNotReported, Call.Issue.NOT_REPORTED,
+    CommonConstants.CallFeedbackIssueOneWayAudio, Call.Issue.ONE_WAY_AUDIO
+  );
+
   private final ReactApplicationContext reactContext;
-  private final AudioSwitch audioSwitch;
-  private final Map<String, AudioDevice> audioDeviceMap;
-  private String selectedDeviceUuid;
-  private Map<String, String> audioDeviceTypeMap = new HashMap();
+  private final AudioSwitchManager audioSwitchManager;
 
-  private static String GLOBAL_ENV = "com.twilio.voice.env";
-
-  @RequiresApi(api = Build.VERSION_CODES.N)
   public TwilioVoiceReactNativeModule(ReactApplicationContext reactContext) {
     super(reactContext);
+
+    logger.log("instantiation of TwilioVoiceReactNativeModule");
     this.reactContext = reactContext;
-
     System.setProperty(GLOBAL_ENV, ReactNativeVoiceSDK);
+    System.setProperty(SDK_VERSION, ReactNativeVoiceSDKVer);
+    Voice.setLogLevel(BuildConfig.DEBUG ? LogLevel.DEBUG : LogLevel.ERROR);
 
-    if (BuildConfig.DEBUG) {
-      Voice.setLogLevel(LogLevel.DEBUG);
-    } else {
-      Voice.setLogLevel(LogLevel.ERROR);
-    }
+    getJSEventEmitter().setContext(reactContext);
 
-    Log.d(TAG, "instantiation of TwilioVoiceReactNativeModule");
-
-    AndroidEventEmitter.getInstance().setContext(reactContext);
-    VoiceBroadcastReceiver.getInstance().setContext(reactContext);
-
-    audioDeviceTypeMap.put("Speakerphone", "speaker");
-    audioDeviceTypeMap.put("BluetoothHeadset", "bluetooth");
-    audioDeviceTypeMap.put("WiredHeadset", "earpiece");
-    audioDeviceTypeMap.put("Earpiece", "earpiece");
-
-    audioDeviceMap = new HashMap();
-    audioSwitch = AudioSwitchManager.getInstance(reactContext).getAudioSwitch();
-
-    audioSwitch.start((audioDevices, selectedDevice) -> {
-      audioDeviceMap.clear();
-
-      audioDevices.forEach((audioDevice) -> {
-        String uuid = UUID.randomUUID().toString();
-        audioDeviceMap.put(uuid, audioDevice);
-
-        if (audioDevice.equals(selectedDevice)) {
-          selectedDeviceUuid = uuid;
-        }
+    audioSwitchManager = VoiceApplicationProxy.getAudioSwitchManager()
+      .setListener((audioDevices, selectedDeviceUuid, selectedDevice) -> {
+        WritableMap audioDeviceInfo = serializeAudioDeviceInfo(
+          audioDevices,
+          selectedDeviceUuid,
+          selectedDevice
+        );
+        audioDeviceInfo.putString(VoiceEventType, VoiceEventAudioDevicesUpdated);
+        getJSEventEmitter().sendEvent(ScopeVoice, audioDeviceInfo);
       });
-
-      WritableMap params = Arguments.createMap();
-      params.putString(VoiceEventType, VoiceEventAudioDevicesUpdated);
-      params.putArray(AudioDeviceKeyAudioDevices, getAudioDeviceInfoArray(audioDeviceMap));
-      params.putMap(AudioDeviceKeySelectedDevice, getAudioDeviceInfoMap(selectedDeviceUuid, selectedDevice));
-
-      AndroidEventEmitter.getInstance().sendEvent(ScopeVoice, params);
-
-      return null;
-    });
-
-    //Preload the audio files
-    MediaPlayerManager.getInstance(reactContext);
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
-  public static WritableMap getCallInviteCustomParameters(CallInvite callInvite) {
-    WritableMap customParameters = Arguments.createMap();
-
-    callInvite.getCustomParameters().forEach((customParamKey, customParamVal) -> {
-      customParameters.putString(customParamKey, customParamVal);
-    });
-
-    return customParameters;
+  /**
+   * Invoked by React Native, necessary when passing this NativeModule to the constructor of a
+   * NativeEventEmitter on the JS layer.
+   * <p>
+   * Invoked when a listener is added to the NativeEventEmitter.
+   *
+   * @param eventName The string representation of the event.
+   */
+  @ReactMethod
+  public void addListener(String eventName) {
+    logger.debug(String.format("Calling addListener: %s", eventName));
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
-  public static WritableMap getCallInviteInfo(String uuid, CallInvite callInvite) {
-    WritableMap callInviteInfo = Arguments.createMap();
-    callInviteInfo.putString(CallInviteInfoUuid, uuid);
-    callInviteInfo.putString(CallInviteInfoCallSid, callInvite.getCallSid());
-    callInviteInfo.putString(CallInviteInfoFrom, callInvite.getFrom());
-    callInviteInfo.putString(CallInviteInfoTo, callInvite.getTo());
-
-    WritableMap customParameters = getCallInviteCustomParameters(callInvite);
-    callInviteInfo.putMap(CallInviteInfoCustomParameters, customParameters);
-
-    return callInviteInfo;
-  }
-
-  public static WritableMap getCancelledCallInviteInfo(CancelledCallInvite cancelledCallInvite) {
-    WritableMap cancelledCallInviteInfo = Arguments.createMap();
-    cancelledCallInviteInfo.putString(CancelledCallInviteInfoCallSid, cancelledCallInvite.getCallSid());
-    cancelledCallInviteInfo.putString(CancelledCallInviteInfoFrom, cancelledCallInvite.getFrom());
-    cancelledCallInviteInfo.putString(CancelledCallInviteInfoTo, cancelledCallInvite.getTo());
-    return cancelledCallInviteInfo;
-  }
-
-  @RequiresApi(api = Build.VERSION_CODES.N)
-  public static WritableMap getCallInfo(String uuid, Call call) {
-    WritableMap callInfo = Arguments.createMap();
-    callInfo.putString(CallInfoUuid, uuid);
-    callInfo.putString(CallInfoSid, call.getSid());
-    callInfo.putString(CallInfoFrom, call.getFrom());
-    callInfo.putString(CallInfoTo, call.getTo());
-
-    CallInvite callInvite = Storage.callInviteMap.get(uuid);
-    if (callInvite != null) {
-      WritableMap customParams = getCallInviteCustomParameters(callInvite);
-      callInfo.putMap(CallInviteInfoCustomParameters, customParams);
-    }
-
-    return callInfo;
-  }
-
-  private WritableMap getAudioDeviceInfoMap(String uuid, AudioDevice audioDevice) {
-    WritableMap audioDeviceInfo = Arguments.createMap();
-    audioDeviceInfo.putString(AudioDeviceKeyUuid, uuid);
-    audioDeviceInfo.putString(AudioDeviceKeyName, audioDevice.getName());
-    String type = audioDevice.getClass().getSimpleName();
-    audioDeviceInfo.putString(AudioDeviceKeyType, audioDeviceTypeMap.get(type));
-    return audioDeviceInfo;
-  }
-
-  @RequiresApi(api = Build.VERSION_CODES.N)
-  private WritableArray getAudioDeviceInfoArray(Map<String, AudioDevice> audioDevices) {
-    WritableArray audioDeviceInfoArray = Arguments.createArray();
-    audioDevices.forEach((uuid, audioDevice) -> {
-      WritableMap audioDeviceInfoMap = getAudioDeviceInfoMap(uuid, audioDevice);
-      audioDeviceInfoArray.pushMap(audioDeviceInfoMap);
-    });
-    return audioDeviceInfoArray;
-  }
-
-  @RequiresApi(api = Build.VERSION_CODES.N)
-  private WritableMap getAudioDeviceInfo() {
-    WritableMap audioDevicesInfo = Arguments.createMap();
-    audioDevicesInfo.putArray(AudioDeviceKeyAudioDevices, getAudioDeviceInfoArray(audioDeviceMap));
-    audioDevicesInfo.putMap(AudioDeviceKeySelectedDevice, getAudioDeviceInfoMap(selectedDeviceUuid, audioSwitch.getSelectedAudioDevice()));
-    return audioDevicesInfo;
+  /**
+   * Invoked by React Native, necessary when passing this NativeModule to the constructor of a
+   * NativeEventEmitter on the JS layer.
+   * <p>
+   * Invoked when listeners are removed from the NativeEventEmitter.
+   *
+   * @param count The number of event listeners removed.
+   */
+  @ReactMethod
+  public void removeListeners(Integer count) {
+    logger.debug("Calling removeListeners: " + count);
   }
 
   @Override
@@ -221,26 +145,26 @@ public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
   private RegistrationListener createRegistrationListener(Promise promise) {
     return new RegistrationListener() {
       @Override
-      public void onRegistered(String accessToken, String fcmToken) {
-        Log.d(TAG, "Successfully registered FCM");
-        WritableMap params = Arguments.createMap();
-        params.putString(VoiceEventType, VoiceEventRegistered);
-        AndroidEventEmitter.getInstance().sendEvent(ScopeVoice, params);
+      public void onRegistered(@NonNull String accessToken, @NonNull String fcmToken) {
+        logger.log("Successfully registered FCM");
+        sendJSEvent(constructJSMap(new Pair<>(VoiceEventType, VoiceEventRegistered)));
         promise.resolve(null);
       }
 
       @Override
-      public void onError(RegistrationException registrationException, String accessToken, String fcmToken) {
-        String errorMessage = String.format("Registration Error: %d, %s",
-          registrationException.getErrorCode(), registrationException.getMessage());
-        Log.e(TAG, errorMessage);
-        WritableMap params = Arguments.createMap();
-        params.putString(VoiceEventType, VoiceEventError);
-        WritableMap error = Arguments.createMap();
-        error.putInt(VoiceErrorKeyCode, registrationException.getErrorCode());
-        error.putString(VoiceErrorKeyMessage, registrationException.getMessage());
-        params.putMap(VoiceErrorKeyError, error);
-        AndroidEventEmitter.getInstance().sendEvent(ScopeVoice, params);
+      public void onError(@NonNull RegistrationException registrationException,
+                          @NonNull String accessToken,
+                          @NonNull String fcmToken) {
+        String errorMessage = reactContext.getString(
+          R.string.registration_error,
+          registrationException.getErrorCode(),
+          registrationException.getMessage());
+        logger.error(errorMessage);
+
+        sendJSEvent(constructJSMap(
+          new Pair<>(VoiceEventType, VoiceEventError),
+          new Pair<>(VoiceErrorKeyError, serializeVoiceException(registrationException))));
+
         promise.reject(errorMessage);
       }
     };
@@ -250,33 +174,37 @@ public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
     return new UnregistrationListener() {
       @Override
       public void onUnregistered(String accessToken, String fcmToken) {
-        Log.d(TAG, "Successfully unregistered FCM");
-        WritableMap params = Arguments.createMap();
-        params.putString(VoiceEventType, VoiceEventUnregistered);
-        AndroidEventEmitter.getInstance().sendEvent(ScopeVoice, params);
+        logger.log("Successfully unregistered FCM");
+        sendJSEvent(constructJSMap(new Pair<>(VoiceEventType, VoiceEventUnregistered)));
         promise.resolve(null);
       }
 
       @Override
       public void onError(RegistrationException registrationException, String accessToken, String fcmToken) {
-        String errorMessage = String.format("Unregistration Error: %d, %s", registrationException.getErrorCode(), registrationException.getMessage());
-        Log.e(TAG, errorMessage);
-        WritableMap params = Arguments.createMap();
-        params.putString(VoiceEventType, VoiceEventError);
-        WritableMap error = Arguments.createMap();
-        error.putInt(VoiceErrorKeyCode, registrationException.getErrorCode());
-        error.putString(VoiceErrorKeyMessage, registrationException.getMessage());
-        params.putMap(VoiceErrorKeyError, error);
-        AndroidEventEmitter.getInstance().sendEvent(ScopeVoice, params);
+        @SuppressLint("DefaultLocale")
+        String errorMessage = reactContext.getString(
+          R.string.unregistration_error,
+          registrationException.getErrorCode(),
+          registrationException.getMessage());
+        logger.error(errorMessage);
+
+        sendJSEvent(constructJSMap(
+          new Pair<>(VoiceEventType, VoiceEventError),
+          new Pair<>(VoiceErrorKeyError, serializeVoiceException(registrationException))));
+
         promise.reject(errorMessage);
       }
     };
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
   @ReactMethod
-  public void voice_connect(String accessToken, ReadableMap twimlParams, Promise promise) {
-    Log.e(TAG, String.format("Calling voice_connect"));
+  public void voice_connect_android(
+    String accessToken,
+    ReadableMap twimlParams,
+    String notificationDisplayName,
+    Promise promise
+  ) {
+    logger.debug("Calling voice_connect_android");
     HashMap<String, String> parsedTwimlParams = new HashMap<>();
 
     ReadableMapKeySetIterator iterator = twimlParams.keySetIterator();
@@ -295,24 +223,38 @@ public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
           parsedTwimlParams.put(key, twimlParams.getString(key));
           break;
         default:
-          Log.d(TAG, "Could not convert with key: " + key + ".");
+          logger.warning("Could not convert with key: " + key + ".");
           break;
       }
     }
 
-    String uuid = UUID.randomUUID().toString();
-
+    // connect & create call record
+    final UUID uuid = UUID.randomUUID();
+    final String callRecipient =
+      (parsedTwimlParams.containsKey("to") && !(parsedTwimlParams.get("to").isBlank()))
+        ? parsedTwimlParams.get("to")
+        : getReactApplicationContext().getString(R.string.unknown_call_recipient);
     ConnectOptions connectOptions = new ConnectOptions.Builder(accessToken)
       .enableDscp(true)
       .params(parsedTwimlParams)
+      .callMessageListener(new CallMessageListenerProxy())
       .build();
-
-    Call call = Voice.connect(getReactApplicationContext(), connectOptions, new CallListenerProxy(uuid, reactContext));
-    Storage.callMap.put(uuid, call);
-
-    WritableMap callInfo = getCallInfo(uuid, call);
-
-    promise.resolve(callInfo);
+    try {
+      CallRecord callRecord = new CallRecord(
+        uuid,
+        getVoiceServiceApi().connect(
+          connectOptions,
+          new CallListenerProxy(uuid, getVoiceServiceApi().getServiceContext())),
+        callRecipient,
+        parsedTwimlParams,
+        CallRecord.Direction.OUTGOING,
+        notificationDisplayName);
+      getCallRecordDatabase().add(callRecord);
+      // notify JS layer
+      promise.resolve(serializeCall(callRecord));
+    } catch (SecurityException e) {
+      promise.reject(e, serializeError(31401, e.getMessage()));
+    }
   }
 
   @ReactMethod
@@ -323,25 +265,24 @@ public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void voice_getDeviceToken(Promise promise) {
     FirebaseMessaging.getInstance().getToken()
-      .addOnCompleteListener(new OnCompleteListener<String>() {
-        @Override
-        public void onComplete(@NonNull Task<String> task) {
-          if (!task.isSuccessful()) {
-            Log.w(TAG, "Fetching FCM registration token failed", task.getException());
-            promise.reject("Fetching FCM registration token failed" + task.getException());
-            return;
-          }
+      .addOnCompleteListener(task -> {
+        if (!task.isSuccessful()) {
+          final String warningMsg =
+            reactContext.getString(R.string.fcm_token_registration_fail, task.getException());
+          logger.warning(warningMsg);
+          promise.reject(warningMsg);
+          return;
+        }
 
-          // Get FCM registration token
-          String fcmToken = task.getResult();
+        // Get FCM registration token
+        String fcmToken = task.getResult();
 
-          if (fcmToken == null) {
-            Log.d(TAG, "FCM token is \"null\".");
-            promise.reject("FCM token is \"null\".");
-            return;
-          } else {
-            promise.resolve(fcmToken);
-          }
+        if (fcmToken == null) {
+          final String warningMsg = reactContext.getString(R.string.fcm_token_null);
+          logger.warning(warningMsg);
+          promise.reject(warningMsg);
+        } else {
+          promise.resolve(fcmToken);
         }
       });
   }
@@ -352,51 +293,62 @@ public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
     promise.resolve(null);
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
   @ReactMethod
   public void voice_getCalls(Promise promise) {
     WritableArray callInfos = Arguments.createArray();
-
-    Storage.callMap.forEach((uuid, call) -> {
-      WritableMap callInfo = getCallInfo(uuid, call);
-      callInfos.pushMap(callInfo);
-    });
-
+    for (CallRecord callRecord: getCallRecordDatabase().getCollection()) {
+      // incoming calls that have not been acted on do not have call-objects
+      if (null != callRecord.getVoiceCall()) {
+        callInfos.pushMap(serializeCall(callRecord));
+      }
+    }
     promise.resolve(callInfos);
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
   @ReactMethod
   public void voice_getCallInvites(Promise promise) {
     WritableArray callInviteInfos = Arguments.createArray();
-
-    Storage.callInviteMap.forEach((uuid, callInvite) -> {
-      WritableMap callInviteInfo = getCallInviteInfo(uuid, callInvite);
-      callInviteInfos.pushMap(callInviteInfo);
-    });
-
+    for (CallRecord callRecord: getCallRecordDatabase().getCollection()) {
+      if (null != callRecord.getCallInvite() &&
+          CallRecord.CallInviteState.ACTIVE == callRecord.getCallInviteState()) {
+        callInviteInfos.pushMap(serializeCallInvite(callRecord));
+      }
+    }
     promise.resolve(callInviteInfos);
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
   @ReactMethod
   public void voice_getAudioDevices(Promise promise) {
-    promise.resolve(getAudioDeviceInfo());
+    Map<String, AudioDevice> audioDevices = audioSwitchManager.getAudioDevices();
+    String selectedAudioDeviceUuid = audioSwitchManager.getSelectedAudioDeviceUuid();
+    AudioDevice selectedAudioDevice = audioSwitchManager.getSelectedAudioDevice();
+
+    WritableMap audioDeviceInfo = serializeAudioDeviceInfo(
+      audioDevices,
+      selectedAudioDeviceUuid,
+      selectedAudioDevice
+    );
+
+    promise.resolve(audioDeviceInfo);
   }
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
   @ReactMethod
   public void voice_selectAudioDevice(String uuid, Promise promise) {
-    AudioDevice audioDevice = audioDeviceMap.get(uuid);
-
+    AudioDevice audioDevice = audioSwitchManager.getAudioDevices().get(uuid);
     if (audioDevice == null) {
-      promise.reject("No such \"audioDevice\" object exists with UUID " + uuid);
+      promise.reject(reactContext.getString(R.string.missing_audiodevice_uuid, uuid));
       return;
     }
 
-    audioSwitch.selectDevice(audioDevice);
+    audioSwitchManager.getAudioSwitch().selectDevice(audioDevice);
 
-    promise.resolve(getAudioDeviceInfo());
+    promise.resolve(null);
+  }
+
+  @ReactMethod
+  public void voice_setIncomingCallContactHandleTemplate(String template, Promise promise) {
+    ConfigurationProperties.setIncomingCallContactHandleTemplate(template);
+    promise.resolve(null);
   }
 
   /**
@@ -405,124 +357,105 @@ public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
 
   @ReactMethod
   public void call_getState(String uuid, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      promise.resolve(callRecord.getVoiceCall().getState().toString().toLowerCase());
     }
-
-    promise.resolve(activeCall.getState().toString().toLowerCase());
   }
 
   @ReactMethod
   public void call_isMuted(String uuid, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      promise.resolve(callRecord.getVoiceCall().isMuted());
     }
-
-    promise.resolve(activeCall.isMuted());
   }
 
   @ReactMethod
   public void call_isOnHold(String uuid, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      promise.resolve(callRecord.getVoiceCall().isOnHold());
     }
-
-    promise.resolve(activeCall.isOnHold());
   }
 
   @ReactMethod
   public void call_disconnect(String uuid, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      getVoiceServiceApi().disconnect(callRecord);
+      promise.resolve(uuid);
     }
-
-    activeCall.disconnect();
-    promise.resolve(uuid);
   }
 
   @ReactMethod
   public void call_hold(String uuid, boolean hold, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      callRecord.getVoiceCall().hold(hold);
+      promise.resolve(callRecord.getVoiceCall().isOnHold());
     }
-
-    activeCall.hold(hold);
-
-    boolean isOnHold = activeCall.isOnHold();
-    promise.resolve(isOnHold);
   }
 
   @ReactMethod
   public void call_mute(String uuid, boolean mute, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      callRecord.getVoiceCall().mute(mute);
+      promise.resolve(callRecord.getVoiceCall().isMuted());
     }
-
-    activeCall.mute(mute);
-
-    boolean isMuted = activeCall.isMuted();
-    promise.resolve(isMuted);
   }
 
   @ReactMethod
   public void call_sendDigits(String uuid, String digits, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      callRecord.getVoiceCall().sendDigits(digits);
+      promise.resolve(uuid);
     }
-
-    activeCall.sendDigits(digits);
-    promise.resolve(uuid);
   }
 
   @ReactMethod
-  public void call_postFeedback(String uuid,  int scoreData, String issueData, Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+  public void call_postFeedback(String uuid, String score, String issue, Promise promise) {
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      Call.Score parsedScore = getScoreFromString(score);
+      Call.Issue parsedIssue = getIssueFromString(issue);
+
+      callRecord.getVoiceCall().postFeedback(parsedScore, parsedIssue);
+
+      promise.resolve(uuid);
     }
-
-    Call.Score score = getScoreFromId(scoreData);
-    Call.Issue issue = getIssueFromString(issueData);
-
-    activeCall.postFeedback(score, issue);
-    promise.resolve(uuid);
   }
 
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
   @ReactMethod
-  public void call_getStats(String uuid,  Promise promise) {
-    Call activeCall = Storage.callMap.get(uuid);
+  public void call_getStats(String uuid, Promise promise) {
+    final CallRecord callRecord = validateCallRecord(reactContext, UUID.fromString(uuid), promise);
 
-    if (activeCall == null) {
-      promise.reject("No such \"call\" object exists with UUID " + uuid);
-      return;
+    if (null != callRecord) {
+      callRecord.getVoiceCall().getStats(new StatsListenerProxy(uuid, reactContext, promise));
     }
+  }
 
-    activeCall.getStats(new StatsListenerProxy(uuid, reactContext, promise));
+  @ReactMethod
+  public void call_sendMessage(String uuid, String content, String contentType, String messageType, Promise promise) {
+    final CallRecord callRecord = getCallRecordDatabase().get(new CallRecord(UUID.fromString(uuid)));
+
+    final CallMessage callMessage = new CallMessage.Builder(messageType)
+      .contentType(contentType).content(content).build();
+
+    promise.resolve((CallRecord.CallInviteState.ACTIVE == callRecord.getCallInviteState())
+      ? callRecord.getCallInvite().sendMessage(callMessage)
+      : callRecord.getVoiceCall().sendMessage(callMessage));
   }
 
   // Register/UnRegister
@@ -530,164 +463,172 @@ public class TwilioVoiceReactNativeModule extends ReactContextBaseJavaModule {
   @ReactMethod
   public void voice_register(String token, Promise promise) {
     FirebaseMessaging.getInstance().getToken()
-      .addOnCompleteListener(new OnCompleteListener<String>() {
-        @Override
-        public void onComplete(@NonNull Task<String> task) {
-          if (!task.isSuccessful()) {
-            Log.w(TAG, "Fetching FCM registration token failed", task.getException());
-            promise.reject("Fetching FCM registration token failed" + task.getException());
-            return;
-          }
-
-          // Get new FCM registration token
-          String fcmToken = task.getResult();
-
-          if (fcmToken == null) {
-            Log.d(TAG, "FCM token is \"null\".");
-            promise.reject("FCM token is \"null\".");
-            return;
-          }
-
-          // Log and toast
-          if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Registering with FCM with token " + fcmToken);
-          }
-          RegistrationListener registrationListener = createRegistrationListener(promise);
-          Voice.register(token, Voice.RegistrationChannel.FCM, fcmToken, registrationListener);
+      .addOnCompleteListener(task -> {
+        if (!task.isSuccessful()) {
+          final String warningMsg =
+            reactContext.getString(R.string.fcm_token_registration_fail, task.getException());
+          logger.warning(warningMsg);
+          promise.reject(warningMsg);
+          return;
         }
+
+        // Get new FCM registration token
+        String fcmToken = task.getResult();
+
+        if (fcmToken == null) {
+          final String warningMsg = reactContext.getString(R.string.fcm_token_null);
+          logger.warning(warningMsg);
+          promise.reject(warningMsg);
+          return;
+        }
+
+        // Log and toast
+        logger.debug("Registering with FCM with token " + fcmToken);
+        RegistrationListener registrationListener = createRegistrationListener(promise);
+        Voice.register(token, Voice.RegistrationChannel.FCM, fcmToken, registrationListener);
       });
   }
 
   @ReactMethod
   public void voice_unregister(String token, Promise promise) {
     FirebaseMessaging.getInstance().getToken()
-      .addOnCompleteListener(new OnCompleteListener<String>() {
-        @Override
-        public void onComplete(@NonNull Task<String> task) {
-          if (!task.isSuccessful()) {
-            Log.w(TAG, "Fetching FCM registration token failed", task.getException());
-            promise.reject("Fetching FCM registration token failed" + task.getException());
-            return;
-          }
-
-          // Get new FCM registration token
-          String fcmToken = task.getResult();
-
-          if (fcmToken == null) {
-            Log.d(TAG, "FCM token is \"null\".");
-            promise.reject("FCM token is \"null\".");
-            return;
-          }
-
-          // Log and toast
-          if (BuildConfig.DEBUG) {
-            Log.d(TAG, "Registering with FCM with token " + fcmToken);
-          }
-          UnregistrationListener unregistrationListener = createUnregistrationListener(promise);
-          Voice.unregister(token, Voice.RegistrationChannel.FCM, fcmToken, unregistrationListener);
+      .addOnCompleteListener(task -> {
+        if (!task.isSuccessful()) {
+          final String warningMsg =
+            reactContext.getString(R.string.fcm_token_registration_fail, task.getException());
+          logger.warning(warningMsg);
+          promise.reject(warningMsg);
+          return;
         }
+
+        // Get new FCM registration token
+        String fcmToken = task.getResult();
+
+        if (fcmToken == null) {
+          final String warningMsg = reactContext.getString(R.string.fcm_token_null);
+          logger.warning(warningMsg);
+          promise.reject(warningMsg);
+          return;
+        }
+
+        // Log and toast
+        logger.debug("Registering with FCM with token " + fcmToken);
+        UnregistrationListener unregistrationListener = createUnregistrationListener(promise);
+        Voice.unregister(token, Voice.RegistrationChannel.FCM, fcmToken, unregistrationListener);
       });
+  }
+
+  @ReactMethod void voice_handleEvent(ReadableMap messageData, Promise promise) {
+    // validate embedded firebase module is disabled
+    if (ConfigurationProperties.isFirebaseServiceEnabled(reactContext)) {
+      final String errorMsg = reactContext.getString(R.string.method_invocation_invalid);
+      logger.warning("Embedded firebase messaging enabled, handleEvent invocation invalid!");
+      promise.reject(errorMsg);
+      return;
+    }
+    // parse data to string map
+    final HashMap<String, String> parsedMessageData = new HashMap<>();
+    ReadableMapKeySetIterator iterator = messageData.keySetIterator();
+    while (iterator.hasNextKey()) {
+      String key = iterator.nextKey();
+      parsedMessageData.put(key, messageData.getString(key));
+    }
+    // attempt to parse message
+    if (Voice.handleMessage(
+      reactContext,
+      parsedMessageData,
+      new VoiceFirebaseMessagingService.MessageHandler(),
+      new CallMessageListenerProxy())) {
+      promise.resolve(true);
+    } else {
+      promise.resolve(false);
+    }
   }
 
   // CallInvite
 
-  @RequiresApi(api = Build.VERSION_CODES.N)
   @ReactMethod
   public void callInvite_accept(String callInviteUuid, ReadableMap options, Promise promise) {
-    Log.d(TAG, "callInvite_accept uuid" + callInviteUuid);
-    CallInvite activeCallInvite = Storage.callInviteMap.get(callInviteUuid);
+    logger.debug("callInvite_accept uuid" + callInviteUuid);
+    final CallRecord callRecord =
+      validateCallInviteRecord(reactContext, UUID.fromString(callInviteUuid), promise);
 
-    if (activeCallInvite == null) {
-      promise.reject("No such \"callInvite\" object exists with UUID " + callInviteUuid);
-      return;
+    if (null != callRecord) {
+      // Store promise for callback
+      callRecord.setCallAcceptedPromise(promise);
+
+      // Send Event to service
+      try {
+        getVoiceServiceApi().acceptCall(callRecord);
+      } catch (SecurityException e) {
+        promise.reject(e, serializeError(31401, e.getMessage()));
+      }
     }
-
-    AcceptOptions acceptOptions = new AcceptOptions.Builder()
-      .enableDscp(true)
-      .build();
-
-    Call call = activeCallInvite.accept(getReactApplicationContext(), acceptOptions, new CallListenerProxy(callInviteUuid, reactContext));
-    Storage.callMap.put(callInviteUuid, call);
-
-    // Send Event to upstream
-    WritableMap params = Arguments.createMap();
-    WritableMap callInviteInfo = getCallInviteInfo(callInviteUuid, activeCallInvite);
-    params.putString(VoiceEventType, VoiceEventCallInviteAccepted);
-    params.putMap(EVENT_KEY_CALL_INVITE_INFO, callInviteInfo);
-    AndroidEventEmitter.getInstance().sendEvent(ScopeVoice, params);
-
-    int notificationId = Storage.uuidNotificaionIdMap.get(callInviteUuid);
-    Intent acceptIntent = new Intent(getReactApplicationContext(), IncomingCallNotificationService.class);
-    acceptIntent.setAction(Constants.ACTION_CANCEL_NOTIFICATION);
-    acceptIntent.putExtra(Constants.NOTIFICATION_ID, notificationId);
-    acceptIntent.putExtra(Constants.UUID, callInviteUuid);
-
-    getReactApplicationContext().startService(acceptIntent);
-
-    WritableMap callInfo = getCallInfo(callInviteUuid, call);
-
-    Storage.releaseCallInviteStorage(callInviteUuid, activeCallInvite.getCallSid(), Storage.uuidNotificaionIdMap.get(callInviteUuid), "accept");
-
-    promise.resolve(callInfo);
   }
 
   @ReactMethod
   public void callInvite_reject(String uuid, Promise promise) {
-    Log.d(TAG, "callInvite_reject uuid" + uuid);
-    CallInvite activeCallInvite = Storage.callInviteMap.get(uuid);
+    logger.debug("callInvite_reject uuid" + uuid);
 
-    if (activeCallInvite == null) {
-      promise.reject("No such \"callInvite\" object exists with UUID " + uuid);
-      return;
+    final CallRecord callRecord =
+      validateCallInviteRecord(reactContext, UUID.fromString(uuid), promise);
+
+    if (null != callRecord) {
+      // Store promise for callback
+      callRecord.setCallRejectedPromise(promise);
+
+      // Send Event to service
+      getVoiceServiceApi().rejectCall(callRecord);
     }
-
-    activeCallInvite.reject(getReactApplicationContext());
-
-    int notificationId = Storage.uuidNotificaionIdMap.get(uuid);
-    Intent rejectIntent = new Intent(getReactApplicationContext(), IncomingCallNotificationService.class);
-    rejectIntent.setAction(Constants.ACTION_CANCEL_NOTIFICATION);
-    rejectIntent.putExtra(Constants.NOTIFICATION_ID, notificationId);
-    rejectIntent.putExtra(Constants.UUID, uuid);
-    getReactApplicationContext().startService(rejectIntent);
-
-    Storage.releaseCallInviteStorage(uuid, activeCallInvite.getCallSid(), Storage.uuidNotificaionIdMap.get(uuid), "reject");
-
-    promise.resolve(uuid);
   }
 
-  Call.Score getScoreFromId (int x) {
-    switch(x) {
-      case 0:
-        return Call.Score.NOT_REPORTED;
-      case 1:
-        return Call.Score.ONE;
-      case 2:
-        return Call.Score.TWO;
-      case 3:
-        return Call.Score.THREE;
-      case 4:
-        return Call.Score.FOUR;
-      case 5:
-        return Call.Score.FIVE;
-    }
-    return Call.Score.NOT_REPORTED;
+  /**
+   * Use the score map to get a Call.Score value from a string.
+   * @param score The score as a string passed from the JS layer.
+   * @return a Call.Score enum value. If the passed string is not in the enum, defaults to
+   * Call.Score.NOT_REPORTED.
+   */
+  private static Call.Score getScoreFromString(String score) {
+    return scoreMap.containsKey(score)
+      ? scoreMap.get(score)
+      : Call.Score.NOT_REPORTED;
   }
 
-  Call.Issue getIssueFromString(String issue) {
-    if (issue.compareTo(Call.Issue.NOT_REPORTED.toString()) == 0) {
-      return Call.Issue.NOT_REPORTED;
-    } else if (issue.compareTo(Call.Issue.DROPPED_CALL.toString()) == 0) {
-      return Call.Issue.DROPPED_CALL;
-    } else if (issue.compareTo(Call.Issue.AUDIO_LATENCY.toString()) == 0) {
-      return Call.Issue.AUDIO_LATENCY;
-    } else if (issue.compareTo(Call.Issue.ONE_WAY_AUDIO.toString()) == 0) {
-      return Call.Issue.ONE_WAY_AUDIO;
-    } else if (issue.compareTo(Call.Issue.CHOPPY_AUDIO.toString()) == 0) {
-      return Call.Issue.CHOPPY_AUDIO;
-    } else if (issue.compareTo(Call.Issue.NOISY_CALL.toString()) == 0) {
-      return Call.Issue.NOISY_CALL;
-    }
-    return Call.Issue.NOT_REPORTED;
+  /**
+   * Use the issue map to get a Call.Issue value from a string.
+   * @param issue The issue as a string passed from the JS layer.
+   * @return a Call.Issue enum value. If the passed string is not in the enum, defaults to
+   * Call.Issue.NOT_REPORTED.
+   */
+  private static Call.Issue getIssueFromString(String issue) {
+    return issueMap.containsKey(issue)
+      ? issueMap.get(issue)
+      : Call.Issue.NOT_REPORTED;
   }
 
+  private static CallRecord validateCallRecord(@NonNull final Context context,
+                                               @NonNull final UUID uuid,
+                                               @NonNull final Promise promise) {
+    CallRecord callRecord = getCallRecordDatabase().get(new CallRecord(uuid));
+
+    if (null == callRecord || null == callRecord.getVoiceCall()) {
+      promise.reject(context.getString(R.string.missing_call_uuid, uuid));
+      return null;
+    }
+    return callRecord;
+  }
+  private static CallRecord validateCallInviteRecord(@NonNull final Context context,
+                                                     @NonNull final UUID uuid,
+                                                     @NonNull final Promise promise) {
+    CallRecord callRecord = getCallRecordDatabase().get(new CallRecord(uuid));
+
+    if (null == callRecord || null == callRecord.getCallInvite()) {
+      promise.reject(context.getString(R.string.missing_callinvite_uuid, uuid));
+      return null;
+    }
+    return callRecord;
+  }
+  private static void sendJSEvent(@NonNull WritableMap event) {
+    getJSEventEmitter().sendEvent(ScopeVoice, event);
+  }
 }

@@ -11,10 +11,10 @@ api-extractor.json
 babel.config.js
 constants
 coverage
-docs
+docs/api
 node_modules
 temp
-example
+test/app
 scripts
 src
 PULL_REQUEST_TEMPLATE.md
